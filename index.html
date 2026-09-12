@@ -787,25 +787,36 @@
       const [status, setStatus] = useState('idle');
       const intervalRef = useRef(null);
       const startTimeRef = useRef(null);
-      const accumulatedTimeRef = useRef(0);
+      const accumulatedSecondsRef = useRef(0);
+
+      const updateTimer = useCallback(() => {
+        if (!startTimeRef.current) return;
+        const now = Date.now();
+        const elapsedSeconds = Math.floor((now - startTimeRef.current) / 1000);
+        setSeconds(accumulatedSecondsRef.current + elapsedSeconds);
+      }, []);
 
       function start() {
         if (status === 'running') return;
         setStatus('running');
         startTimeRef.current = Date.now();
         
-        intervalRef.current = setInterval(() => {
-          const now = Date.now();
-          const elapsed = Math.floor((now - startTimeRef.current) / 1000);
-          setSeconds(accumulatedTimeRef.current + elapsed);
-        }, 200); // Atualiza em intervalos curtos para manter fluidez perfeita
+        intervalRef.current = setInterval(updateTimer, 200);
       }
 
       function pause() {
         if (status !== 'running') return;
         clearInterval(intervalRef.current);
         intervalRef.current = null;
-        accumulatedTimeRef.current = seconds;
+        
+        if (startTimeRef.current) {
+          const now = Date.now();
+          const elapsed = Math.floor((now - startTimeRef.current) / 1000);
+          accumulatedSecondsRef.current += elapsed;
+          setSeconds(accumulatedSecondsRef.current);
+        }
+        
+        startTimeRef.current = null;
         setStatus('paused');
       }
 
@@ -817,14 +828,24 @@
       function reset() {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
-        accumulatedTimeRef.current = 0;
+        startTimeRef.current = null;
+        accumulatedSecondsRef.current = 0;
         setSeconds(0);
         setStatus('idle');
       }
 
       useEffect(() => {
-        return () => clearInterval(intervalRef.current);
-      }, []);
+        function handleVisibilityChange() {
+          if (document.visibilityState === 'visible' && status === 'running') {
+            updateTimer();
+          }
+        }
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => {
+          document.removeEventListener('visibilitychange', handleVisibilityChange);
+          clearInterval(intervalRef.current);
+        };
+      }, [status, updateTimer]);
 
       return { seconds, status, start, pause, resume, reset };
     }
