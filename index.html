@@ -1,0 +1,2864 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StudyFlow — Organização de Estudos</title>
+  <meta name="description" content="Aplicativo de organização de estudos para gerenciar disciplinas, metas de horas e progresso acadêmico." />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            navy: {
+              900: '#0F172A',
+              800: '#1E293B',
+              700: '#1E3A8A',
+              600: '#2563EB',
+            },
+            emerald: {
+              500: '#10B981',
+              600: '#059669',
+            },
+            surface: {
+              light: '#F8FAFC',
+              dark: '#0F172A',
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          },
+          animation: {
+            'fade-in': 'fadeIn 0.2s ease-out',
+            'slide-up': 'slideUp 0.25s ease-out',
+            'scale-in': 'scaleIn 0.15s ease-out',
+          },
+          keyframes: {
+            fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+            slideUp: { '0%': { opacity: '0', transform: 'translateY(12px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+            scaleIn: { '0%': { opacity: '0', transform: 'scale(0.95)' }, '100%': { opacity: '1', transform: 'scale(1)' } },
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- React + ReactDOM CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <!-- Babel Standalone para JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Inter', system-ui, sans-serif; }
+
+    /* Scrollbar personalizada */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    .dark ::-webkit-scrollbar-thumb { background: #334155; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+    /* Transição suave de tema */
+    *, *::before, *::after {
+      transition: background-color 0.2s ease, border-color 0.2s ease, color 0.15s ease;
+    }
+
+    /* Glassmorphism */
+    .glass {
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+
+    /* Gradiente animado para o header da sidebar */
+    .sidebar-gradient {
+      background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%);
+    }
+
+    /* Hover suave nos cards */
+    .card-hover {
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .card-hover:hover {
+      transform: translateY(-2px);
+    }
+  </style>
+</head>
+<body class="bg-slate-50 dark:bg-navy-900 min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, createContext, useContext, useRef } = React;
+
+    // =============================================
+    // HOOKS UTILITÁRIOS
+    // =============================================
+
+    function useLocalStorage(key, initialValue) {
+      const [storedValue, setStoredValue] = useState(() => {
+        try {
+          const item = window.localStorage.getItem(key);
+          return item ? JSON.parse(item) : initialValue;
+        } catch (error) {
+          console.warn(`Erro ao ler LocalStorage [${key}]:`, error);
+          return initialValue;
+        }
+      });
+
+      const setValue = useCallback((value) => {
+        try {
+          const valueToStore = value instanceof Function ? value(storedValue) : value;
+          setStoredValue(valueToStore);
+          window.localStorage.setItem(key, JSON.stringify(valueToStore));
+        } catch (error) {
+          console.warn(`Erro ao salvar no LocalStorage [${key}]:`, error);
+        }
+      }, [key, storedValue]);
+
+      return [storedValue, setValue];
+    }
+
+    // =============================================
+    // CONTEXTO DE TEMA
+    // =============================================
+    const ThemeContext = createContext(null);
+
+    function ThemeProvider({ children }) {
+      const [theme, setTheme] = useLocalStorage('studyflow-theme', 'dark');
+
+      useEffect(() => {
+        const root = document.documentElement;
+        if (theme === 'dark') {
+          root.classList.add('dark');
+        } else {
+          root.classList.remove('dark');
+        }
+      }, [theme]);
+
+      const toggleTheme = useCallback(() => {
+        setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+      }, [setTheme]);
+
+      return (
+        <ThemeContext.Provider value={{ theme, toggleTheme }}>
+          {children}
+        </ThemeContext.Provider>
+      );
+    }
+
+    function useTheme() {
+      return useContext(ThemeContext);
+    }
+
+    // =============================================
+    // PALETA DE CORES PARA DISCIPLINAS
+    // =============================================
+    const SUBJECT_COLORS = [
+      { id: 'blue',    label: 'Azul',     bg: '#3B82F6', light: '#EFF6FF', dark: '#1e3a8a' },
+      { id: 'indigo',  label: 'Índigo',   bg: '#6366F1', light: '#EEF2FF', dark: '#312e81' },
+      { id: 'purple',  label: 'Roxo',     bg: '#8B5CF6', light: '#F5F3FF', dark: '#4c1d95' },
+      { id: 'pink',    label: 'Rosa',     bg: '#EC4899', light: '#FDF2F8', dark: '#831843' },
+      { id: 'red',     label: 'Vermelho', bg: '#EF4444', light: '#FEF2F2', dark: '#7f1d1d' },
+      { id: 'orange',  label: 'Laranja',  bg: '#F97316', light: '#FFF7ED', dark: '#7c2d12' },
+      { id: 'amber',   label: 'Âmbar',    bg: '#F59E0B', light: '#FFFBEB', dark: '#78350f' },
+      { id: 'lime',    label: 'Lima',     bg: '#84CC16', light: '#F7FEE7', dark: '#365314' },
+      { id: 'emerald', label: 'Verde',    bg: '#10B981', light: '#ECFDF5', dark: '#064e3b' },
+      { id: 'teal',    label: 'Teal',     bg: '#14B8A6', light: '#F0FDFA', dark: '#134e4a' },
+      { id: 'cyan',    label: 'Ciano',    bg: '#06B6D4', light: '#ECFEFF', dark: '#164e63' },
+      { id: 'slate',   label: 'Ardósia',  bg: '#64748B', light: '#F8FAFC', dark: '#1e293b' },
+    ];
+
+    // =============================================
+    // COMPONENTE: COLOR PICKER
+    // =============================================
+    function ColorPicker({ selectedColor, onSelect }) {
+      return (
+        <div>
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+            Cor da Disciplina
+          </label>
+          <div className="grid grid-cols-6 gap-2">
+            {SUBJECT_COLORS.map(color => (
+              <button
+                key={color.id}
+                type="button"
+                title={color.label}
+                onClick={() => onSelect(color.id)}
+                className="relative w-9 h-9 rounded-lg transition-all duration-150 hover:scale-110 focus:outline-none"
+                style={{ backgroundColor: color.bg }}
+              >
+                {selectedColor === color.id && (
+                  <span className="absolute inset-0 flex items-center justify-center">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  </span>
+                )}
+                {selectedColor === color.id && (
+                  <span
+                    className="absolute -inset-1 rounded-xl border-2 pointer-events-none"
+                    style={{ borderColor: color.bg }}
+                  />
+                )}
+              </button>
+            ))}
+          </div>
+          {selectedColor && (
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              Selecionado: <span className="font-semibold" style={{ color: SUBJECT_COLORS.find(c => c.id === selectedColor)?.bg }}>
+                {SUBJECT_COLORS.find(c => c.id === selectedColor)?.label}
+              </span>
+            </p>
+          )}
+        </div>
+      );
+    }
+
+    // =============================================
+    // COMPONENTE: MODAL GENÉRICO
+    // =============================================
+    function Modal({ isOpen, onClose, title, children }) {
+      useEffect(() => {
+        if (isOpen) {
+          document.body.style.overflow = 'hidden';
+        } else {
+          document.body.style.overflow = '';
+        }
+        return () => { document.body.style.overflow = ''; };
+      }, [isOpen]);
+
+      if (!isOpen) return null;
+
+      return (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
+          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        >
+          <div className="bg-white dark:bg-navy-800 rounded-2xl shadow-2xl w-full max-w-md animate-scale-in">
+            <div className="flex items-center justify-between p-5 border-b border-slate-200 dark:border-slate-700">
+              <h2 className="text-lg font-bold text-slate-800 dark:text-white">{title}</h2>
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-5">{children}</div>
+          </div>
+        </div>
+      );
+    }
+
+    // =============================================
+    // COMPONENTE: FORMULÁRIO DE DISCIPLINA
+    // =============================================
+    const EMPTY_FORM = { name: '', color: 'blue', weeklyHours: '' };
+
+    function SubjectForm({ initialData, onSave, onCancel }) {
+      const [form, setForm] = useState(initialData || EMPTY_FORM);
+      const [errors, setErrors] = useState({});
+      const nameRef = useRef(null);
+
+      useEffect(() => {
+        if (nameRef.current) nameRef.current.focus();
+      }, []);
+
+      function validate() {
+        const errs = {};
+        if (!form.name.trim()) errs.name = 'O nome da disciplina é obrigatório.';
+        if (form.weeklyHours !== '' && (isNaN(form.weeklyHours) || Number(form.weeklyHours) < 0 || Number(form.weeklyHours) > 168)) {
+          errs.weeklyHours = 'Informe um valor entre 0 e 168 horas.';
+        }
+        return errs;
+      }
+
+      function handleSubmit(e) {
+        e.preventDefault();
+        const errs = validate();
+        if (Object.keys(errs).length > 0) {
+          setErrors(errs);
+          return;
+        }
+        onSave({
+          ...form,
+          name: form.name.trim(),
+          weeklyHours: form.weeklyHours === '' ? null : Number(form.weeklyHours),
+        });
+      }
+
+      return (
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div>
+            <label htmlFor="subjectName" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+              Nome da Disciplina <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="subjectName"
+              ref={nameRef}
+              type="text"
+              maxLength={60}
+              placeholder="Ex: Cálculo I, História do Brasil..."
+              value={form.name}
+              onChange={e => { setForm(f => ({ ...f, name: e.target.value })); setErrors(er => ({ ...er, name: '' })); }}
+              className={`w-full px-4 py-2.5 rounded-xl border text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 transition-all ${
+                errors.name
+                  ? 'border-red-400 focus:ring-red-300'
+                  : 'border-slate-300 dark:border-slate-600 focus:ring-emerald-400 dark:focus:ring-emerald-500'
+              }`}
+            />
+            {errors.name && <p className="mt-1.5 text-xs text-red-500">{errors.name}</p>}
+          </div>
+
+          <ColorPicker
+            selectedColor={form.color}
+            onSelect={color => setForm(f => ({ ...f, color }))}
+          />
+
+          <div>
+            <label htmlFor="weeklyHours" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+              Meta de Horas Semanais
+              <span className="ml-1.5 text-xs text-slate-400 font-normal">(opcional)</span>
+            </label>
+            <div className="relative">
+              <input
+                id="weeklyHours"
+                type="number"
+                min="0"
+                max="168"
+                step="0.5"
+                placeholder="Ex: 10"
+                value={form.weeklyHours}
+                onChange={e => { setForm(f => ({ ...f, weeklyHours: e.target.value })); setErrors(er => ({ ...er, weeklyHours: '' })); }}
+                className={`w-full px-4 py-2.5 pr-14 rounded-xl border text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 transition-all ${
+                  errors.weeklyHours
+                    ? 'border-red-400 focus:ring-red-300'
+                    : 'border-slate-300 dark:border-slate-600 focus:ring-emerald-400 dark:focus:ring-emerald-500'
+                }`}
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 dark:text-slate-500 font-medium pointer-events-none">
+                h/sem
+              </span>
+            </div>
+            {errors.weeklyHours && <p className="mt-1.5 text-xs text-red-500">{errors.weeklyHours}</p>}
+          </div>
+
+          <div className="flex gap-3 pt-1">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-emerald-500 hover:bg-emerald-600 text-white transition-all shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40 hover:scale-[1.02] active:scale-[0.98]"
+            >
+              {initialData ? 'Salvar Alterações' : 'Adicionar Disciplina'}
+            </button>
+          </div>
+        </form>
+      );
+    }
+
+    // =============================================
+    // COMPONENTE: CARD DE DISCIPLINA
+    // =============================================
+    function SubjectCard({ subject, onEdit, onDelete, dbFiles = [], onUploadFile, onViewFile, onDeleteFile, onPreviewFile }) {
+      const [confirmDelete, setConfirmDelete] = useState(false);
+      const [uploading, setUploading]         = useState(false);
+      const colorDef = SUBJECT_COLORS.find(c => c.id === subject.color) || SUBJECT_COLORS[0];
+      const isDark   = document.documentElement.classList.contains('dark');
+
+      const subjectFiles = dbFiles.filter(f => f.subjectId === subject.id);
+
+      async function handleFileSelect(e) {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setUploading(true);
+        try {
+          await onUploadFile(file, subject.id);
+        } catch (err) {
+          alert('Erro ao salvar arquivo no IndexedDB: ' + err.message);
+        } finally {
+          setUploading(false);
+          e.target.value = '';
+        }
+      }
+
+      return (
+        <div className="card-hover group relative bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden shadow-sm hover:shadow-lg dark:hover:shadow-slate-900/60 animate-slide-up flex flex-col justify-between">
+          <div>
+            <div className="h-1.5 w-full" style={{ backgroundColor: colorDef.bg }} />
+
+            <div className="p-5 pb-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className="flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center"
+                    style={{ backgroundColor: isDark ? colorDef.dark + '80' : colorDef.light, border: `1.5px solid ${colorDef.bg}30` }}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colorDef.bg} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                    </svg>
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-base font-bold text-slate-800 dark:text-white truncate leading-snug" title={subject.name}>
+                      {subject.name}
+                    </h3>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span
+                        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold"
+                        style={{ backgroundColor: isDark ? colorDef.dark + '80' : colorDef.light, color: colorDef.bg }}
+                      >
+                        {colorDef.label}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {!confirmDelete && (
+                  <div className="flex-shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      id={`edit-subject-${subject.id}`}
+                      onClick={() => onEdit(subject)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-all"
+                      title="Editar disciplina"
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                      </svg>
+                    </button>
+                    <button
+                      id={`delete-subject-${subject.id}`}
+                      onClick={() => setConfirmDelete(true)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-all"
+                      title="Excluir disciplina"
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                      </svg>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {subject.weeklyHours != null && (
+                <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60 flex items-center gap-2">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={colorDef.bg} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                  </svg>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    Meta: <strong className="text-slate-700 dark:text-slate-200 font-semibold">{subject.weeklyHours}h</strong>
+                    <span className="ml-0.5 text-slate-400 dark:text-slate-500">/semana</span>
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 pb-4">
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-700/60">
+                <div className="flex items-center justify-between gap-2 mb-2.5">
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                    </svg>
+                    Drive Local ({subjectFiles.length})
+                  </span>
+
+                  <label
+                    htmlFor={`file-upload-${subject.id}`}
+                    className={`cursor-pointer inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                      uploading
+                        ? 'bg-slate-100 text-slate-400 cursor-wait'
+                        : 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:hover:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400'
+                    }`}
+                    title="Salvar arquivo no IndexedDB da disciplina"
+                  >
+                    {uploading ? (
+                      <span className="animate-pulse">Salvando...</span>
+                    ) : (
+                      <>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                        </svg>
+                        + Anexar Arquivo
+                      </>
+                    )}
+                    <input
+                      id={`file-upload-${subject.id}`}
+                      type="file"
+                      accept="application/pdf,image/*,.doc,.docx,.ppt,.pptx"
+                      className="hidden"
+                      disabled={uploading}
+                      onChange={handleFileSelect}
+                    />
+                  </label>
+                </div>
+
+                {subjectFiles.length === 0 ? (
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 italic py-1">
+                    Nenhum PDF ou imagem no Drive local.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+                    {subjectFiles.map(file => {
+                      const isPdf   = file.type?.includes('pdf');
+                      const isImage = file.type?.includes('image');
+
+                      return (
+                        <div
+                          key={file.id}
+                          onClick={() => onPreviewFile(file)}
+                          className="group/file relative flex flex-col justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 hover:border-emerald-500 dark:hover:border-emerald-400 hover:shadow-md transition-all cursor-pointer select-none"
+                          title="Clique para visualizar no navegador"
+                        >
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDeleteFile(file.id);
+                            }}
+                            className="absolute top-1.5 right-1.5 p-1 rounded-lg bg-slate-200/80 dark:bg-slate-800/80 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/60 opacity-0 group-hover/file:opacity-100 transition-all z-10"
+                            title="Apagar arquivo do IndexedDB"
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>
+                            </svg>
+                          </button>
+
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 font-bold text-[10px] ${
+                              isPdf
+                                ? 'bg-red-50 dark:bg-red-950/50 text-red-500 border border-red-200 dark:border-red-800/50'
+                                : isImage
+                                ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-500 border border-emerald-200 dark:border-emerald-800/50'
+                                : 'bg-blue-50 dark:bg-blue-950/50 text-blue-500 border border-blue-200 dark:border-blue-800/50'
+                            }`}>
+                              {isPdf ? 'PDF' : isImage ? 'IMG' : 'DOC'}
+                            </div>
+                            <div className="min-w-0 pr-4">
+                              <p className="truncate text-xs font-bold text-slate-800 dark:text-slate-100 leading-tight" title={file.name}>
+                                {file.name}
+                              </p>
+                              <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                {formatFileSize(file.size)}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500 pt-1 border-t border-slate-200/50 dark:border-slate-800/50">
+                            <span>{new Date(file.uploadedAt).toLocaleDateString('pt-BR')}</span>
+                            <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-0.5 group-hover/file:underline">
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                              </svg>
+                              Ver 👁️
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {confirmDelete && (
+                <div className="mt-3 pt-3 border-t border-red-200 dark:border-red-900/50 animate-fade-in">
+                  <p className="text-xs text-red-600 dark:text-red-400 font-medium mb-2">
+                    Excluir <strong>"{subject.name}"</strong>?
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setConfirmDelete(false)}
+                      className="flex-1 py-1 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      id={`confirm-delete-${subject.id}`}
+                      onClick={() => onDelete(subject.id)}
+                      className="flex-1 py-1 text-xs font-semibold rounded-lg bg-red-500 hover:bg-red-600 text-white transition-all"
+                    >
+                      Excluir
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // =============================================
+    // PÁGINA: GERENCIAMENTO DE DISCIPLINAS
+    // =============================================
+    function SubjectsPage({ dbFiles = [], onUploadFile, onViewFile, onDeleteFile, onOpenClearAllModal, onPreviewFile }) {
+      const [subjects, setSubjects] = useLocalStorage('studyflow-subjects', []);
+      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [editingSubject, setEditingSubject] = useState(null);
+      const [search, setSearch] = useState('');
+
+      function openCreateModal() {
+        setEditingSubject(null);
+        setIsModalOpen(true);
+      }
+
+      function openEditModal(subject) {
+        setEditingSubject(subject);
+        setIsModalOpen(true);
+      }
+
+      function closeModal() {
+        setIsModalOpen(false);
+        setEditingSubject(null);
+      }
+
+      function handleSave(data) {
+        if (editingSubject) {
+          setSubjects(prev => prev.map(s => s.id === editingSubject.id ? { ...s, ...data } : s));
+        } else {
+          const newSubject = {
+            ...data,
+            id: `subj-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            createdAt: new Date().toISOString(),
+          };
+          setSubjects(prev => [newSubject, ...prev]);
+        }
+        closeModal();
+      }
+
+      function handleDelete(id) {
+        setSubjects(prev => prev.filter(s => s.id !== id));
+      }
+
+      const filtered = subjects.filter(s =>
+        s.name.toLowerCase().includes(search.toLowerCase())
+      );
+
+      return (
+        <div className="animate-fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-800 dark:text-white">Disciplinas</h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                {subjects.length === 0
+                  ? 'Nenhuma disciplina cadastrada'
+                  : `${subjects.length} disciplina${subjects.length > 1 ? 's' : ''} cadastrada${subjects.length > 1 ? 's' : ''}`}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              {dbFiles.length > 0 && (
+                <button
+                  onClick={onOpenClearAllModal}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/60 transition-all"
+                  title="Apagar todos os arquivos salvos do IndexedDB"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>
+                  </svg>
+                  Limpar Todos os Arquivos ({dbFiles.length})
+                </button>
+              )}
+              <button
+                id="btn-add-subject"
+                onClick={openCreateModal}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 hover:scale-[1.02] active:scale-[0.98] transition-all"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Nova Disciplina
+              </button>
+            </div>
+          </div>
+
+          {subjects.length > 0 && (
+            <div className="relative mb-6">
+              <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input
+                id="search-subjects"
+                type="text"
+                placeholder="Buscar disciplina..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full max-w-sm pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition-all"
+              />
+            </div>
+          )}
+
+          {subjects.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
+              <div className="w-20 h-20 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-5 shadow-inner">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                </svg>
+              </div>
+              <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-1">Nenhuma disciplina ainda</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 max-w-xs">
+                Comece adicionando suas disciplinas para organizar sua grade de estudos.
+              </p>
+              <button
+                onClick={openCreateModal}
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Adicionar primeira disciplina
+              </button>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-12 animate-fade-in">
+              <p className="text-slate-500 dark:text-slate-400 text-sm">
+                Nenhuma disciplina encontrada para "<strong>{search}</strong>".
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {filtered.map(subject => (
+                <SubjectCard
+                  key={subject.id}
+                  subject={subject}
+                  onEdit={openEditModal}
+                  onDelete={handleDelete}
+                  dbFiles={dbFiles}
+                  onUploadFile={onUploadFile}
+                  onViewFile={onViewFile}
+                  onDeleteFile={onDeleteFile}
+                  onPreviewFile={onPreviewFile}
+                />
+              ))}
+            </div>
+          )}
+
+          <Modal
+            isOpen={isModalOpen}
+            onClose={closeModal}
+            title={editingSubject ? 'Editar Disciplina' : 'Nova Disciplina'}
+          >
+            <SubjectForm
+              key={editingSubject?.id || 'new'}
+              initialData={editingSubject ? {
+                name: editingSubject.name,
+                color: editingSubject.color,
+                weeklyHours: editingSubject.weeklyHours ?? '',
+              } : undefined}
+              onSave={handleSave}
+              onCancel={closeModal}
+            />
+          </Modal>
+        </div>
+      );
+    }
+
+    // =============================================
+    // HOOK: CRONÔMETRO (useTimer)
+    // =============================================
+
+    function useTimer() {
+      const [seconds, setSeconds] = useState(0);
+      const [status, setStatus] = useState('idle');
+      const intervalRef = useRef(null);
+
+      function start() {
+        if (status === 'running') return;
+        setStatus('running');
+        intervalRef.current = setInterval(() => {
+          setSeconds(s => s + 1);
+        }, 1000);
+      }
+
+      function pause() {
+        if (status !== 'running') return;
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+        setStatus('paused');
+      }
+
+      function resume() {
+        if (status !== 'paused') return;
+        start();
+      }
+
+      function reset() {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+        setSeconds(0);
+        setStatus('idle');
+      }
+
+      useEffect(() => {
+        return () => clearInterval(intervalRef.current);
+      }, []);
+
+      return { seconds, status, start, pause, resume, reset };
+    }
+
+    function formatTime(totalSeconds) {
+      const h = Math.floor(totalSeconds / 3600);
+      const m = Math.floor((totalSeconds % 3600) / 60);
+      const s = totalSeconds % 60;
+      return [
+        String(h).padStart(2, '0'),
+        String(m).padStart(2, '0'),
+        String(s).padStart(2, '0'),
+      ].join(':');
+    }
+
+    // =============================================
+    // PÁGINA: CENTRAL DE ESTUDOS
+    // =============================================
+
+    function StudyPage() {
+      const [subjects]        = useLocalStorage('studyflow-subjects', []);
+      const [sessions, setSessions] = useLocalStorage('studyflow-sessions', []);
+      const [selectedSubject, setSelectedSubject] = useState('');
+      const [showFinishModal, setShowFinishModal] = useState(false);
+      const [notes, setNotes]                     = useState('');
+      const { seconds, status, start, pause, resume, reset } = useTimer();
+
+      const isRunning = status === 'running';
+      const isPaused  = status === 'paused';
+      const isIdle    = status === 'idle';
+      const isActive  = isRunning || isPaused;
+
+      const currentSubject = subjects.find(s => s.id === selectedSubject);
+      const colorDef = SUBJECT_COLORS.find(c => c.id === currentSubject?.color) || SUBJECT_COLORS[0];
+
+      function handleFinish() {
+        if (isRunning) pause();
+        setNotes('');
+        setShowFinishModal(true);
+      }
+
+      function handleSaveSession() {
+        if (!selectedSubject || seconds === 0) return;
+        const session = {
+          id: `sess-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          subjectId: selectedSubject,
+          durationSeconds: seconds,
+          date: new Date().toISOString(),
+          notes: notes.trim(),
+        };
+        setSessions(prev => [session, ...prev]);
+        reset();
+        setNotes('');
+        setShowFinishModal(false);
+      }
+
+      function handleCancel() {
+        reset();
+        setNotes('');
+        setShowFinishModal(false);
+      }
+
+      const recentSessions = sessions
+        .filter(s => !selectedSubject || s.subjectId === selectedSubject)
+        .slice(0, 5);
+
+      const today = new Date().toDateString();
+      const todaySeconds = sessions
+        .filter(s => new Date(s.date).toDateString() === today)
+        .reduce((acc, s) => acc + s.durationSeconds, 0);
+
+      return (
+        <div className="max-w-2xl mx-auto animate-fade-in">
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold text-slate-800 dark:text-white">Central de Estudos</h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+              Inicie uma sessão de estudos e registre seu progresso.
+            </p>
+          </div>
+
+          <div className="relative bg-white dark:bg-slate-800 rounded-3xl shadow-xl dark:shadow-slate-900/60 overflow-hidden border border-slate-200 dark:border-slate-700">
+            <div
+              className="h-2 w-full transition-all duration-500"
+              style={{ backgroundColor: currentSubject ? colorDef.bg : '#e2e8f0' }}
+            />
+
+            <div className="p-8">
+              <div className="mb-8">
+                <label htmlFor="study-subject-select" className="block text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">
+                  Disciplina em Foco
+                </label>
+                <div className="relative">
+                  <select
+                    id="study-subject-select"
+                    value={selectedSubject}
+                    onChange={e => setSelectedSubject(e.target.value)}
+                    disabled={isActive}
+                    className={`w-full appearance-none px-4 py-3 pr-10 rounded-xl text-sm font-semibold border transition-all focus:outline-none focus:ring-2
+                      ${ isActive
+                          ? 'bg-slate-100 dark:bg-slate-700/50 text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-700 cursor-not-allowed'
+                          : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-100 border-slate-300 dark:border-slate-600 focus:ring-emerald-400 hover:border-emerald-400 cursor-pointer'
+                      }`}
+                  >
+                    <option value="">-- Selecione uma disciplina --</option>
+                    {subjects.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}{s.weeklyHours ? ` · Meta: ${s.weeklyHours}h/sem` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                  </span>
+                </div>
+                {subjects.length === 0 && (
+                  <p className="mt-2 text-xs text-amber-500 dark:text-amber-400 flex items-center gap-1.5">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    Nenhuma disciplina cadastrada.
+                  </p>
+                )}
+              </div>
+
+              <div className="flex flex-col items-center justify-center py-6">
+                <div className={`mb-4 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest transition-all ${
+                  isRunning ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400'
+                  : isPaused ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400'
+                  : 'bg-slate-100 dark:bg-slate-700 text-slate-400 dark:text-slate-500'
+                }`}>
+                  <span className="flex items-center gap-1.5">
+                    {isRunning && <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                    {isRunning ? 'Em andamento' : isPaused ? 'Pausado' : 'Aguardando'}
+                  </span>
+                </div>
+
+                <div
+                  id="timer-display"
+                  className="text-7xl sm:text-8xl font-black tabular-nums tracking-tight transition-all"
+                  style={{
+                    color: isRunning ? colorDef.bg : undefined,
+                    fontVariantNumeric: 'tabular-nums',
+                    textShadow: isRunning ? `0 0 40px ${colorDef.bg}40` : 'none',
+                  }}
+                >
+                  <span className={`transition-colors duration-500 ${
+                    isRunning ? '' : 'text-slate-700 dark:text-slate-200'
+                  }`}>
+                    {formatTime(seconds)}
+                  </span>
+                </div>
+
+                {currentSubject && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: colorDef.bg }} />
+                    <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">
+                      {currentSubject.name}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-6 flex flex-wrap gap-3 justify-center">
+                {isIdle && (
+                  <button
+                    id="btn-timer-start"
+                    onClick={start}
+                    disabled={!selectedSubject}
+                    className={`flex items-center gap-2 px-7 py-3 rounded-xl text-sm font-bold transition-all ${
+                      selectedSubject
+                        ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 hover:scale-[1.03] active:scale-[0.97]'
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+                    }`}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                      <polygon points="5 3 19 12 5 21 5 3"/>
+                    </svg>
+                    Iniciar
+                  </button>
+                )}
+
+                {isRunning && (
+                  <button
+                    id="btn-timer-pause"
+                    onClick={pause}
+                    className="flex items-center gap-2 px-7 py-3 rounded-xl text-sm font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/30 hover:scale-[1.03] active:scale-[0.97] transition-all"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                      <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+                    </svg>
+                    Pausar
+                  </button>
+                )}
+
+                {isPaused && (
+                  <button
+                    id="btn-timer-resume"
+                    onClick={resume}
+                    className="flex items-center gap-2 px-7 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 hover:scale-[1.03] active:scale-[0.97] transition-all"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                      <polygon points="5 3 19 12 5 21 5 3"/>
+                    </svg>
+                    Retomar
+                  </button>
+                )}
+
+                {isActive && (
+                  <button
+                    id="btn-timer-finish"
+                    onClick={handleFinish}
+                    className="flex items-center gap-2 px-7 py-3 rounded-xl text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 hover:scale-[1.03] active:scale-[0.97] transition-all"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                    Concluir Sessão
+                  </button>
+                )}
+
+                {isActive && (
+                  <button
+                    id="btn-timer-cancel"
+                    onClick={handleCancel}
+                    className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-red-50 hover:border-red-300 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:border-red-800 dark:hover:text-red-400 transition-all"
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                    Cancelar
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">Estudado Hoje</p>
+              <p className="text-3xl font-black tabular-nums" style={{ color: '#10B981' }}>
+                {formatTime(todaySeconds)}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                {sessions.filter(s => new Date(s.date).toDateString() === today).length} sessão(ões)
+              </p>
+            </div>
+
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">Total Acumulado</p>
+              <p className="text-3xl font-black tabular-nums text-slate-700 dark:text-white">
+                {formatTime(sessions.reduce((a, s) => a + s.durationSeconds, 0))}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                {sessions.length} sessão(ões) registrada(s)
+              </p>
+            </div>
+          </div>
+
+          {recentSessions.length > 0 && (
+            <div className="mt-6">
+              <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-3">
+                {selectedSubject ? 'Últimas sessões desta disciplina' : 'Sessões Recentes'}
+              </h2>
+              <div className="space-y-2">
+                {recentSessions.map(session => {
+                  const subj = subjects.find(s => s.id === session.subjectId);
+                  const c    = SUBJECT_COLORS.find(col => col.id === subj?.color) || SUBJECT_COLORS[0];
+                  const sessionDate = new Date(session.date);
+                  return (
+                    <div
+                      key={session.id}
+                      className="flex items-center gap-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3 animate-fade-in"
+                    >
+                      <div
+                        className="flex-shrink-0 w-2 h-8 rounded-full"
+                        style={{ backgroundColor: c.bg }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate">
+                          {subj?.name || 'Disciplina removida'}
+                        </p>
+                        {session.notes && (
+                          <p className="text-xs text-slate-400 dark:text-slate-500 truncate mt-0.5">
+                            📝 {session.notes}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex-shrink-0 text-right">
+                        <p className="text-sm font-bold tabular-nums text-slate-700 dark:text-slate-200">
+                          {formatTime(session.durationSeconds)}
+                        </p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500">
+                          {sessionDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                          {' · '}
+                          {sessionDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <Modal
+            isOpen={showFinishModal}
+            onClose={() => { setShowFinishModal(false); if (isPaused && seconds > 0) resume(); }}
+            title="Concluir Sessão de Estudos"
+          >
+            <div className="space-y-5">
+              <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-4 flex items-center gap-4">
+                <div
+                  className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center"
+                  style={{ backgroundColor: colorDef.bg + '20', border: `1.5px solid ${colorDef.bg}40` }}
+                >
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={colorDef.bg} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">Tempo total</p>
+                  <p className="text-2xl font-black tabular-nums" style={{ color: colorDef.bg }}>
+                    {formatTime(seconds)}
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {currentSubject?.name}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="session-notes" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                  Anotações rápidas
+                  <span className="ml-1.5 text-xs text-slate-400 font-normal">(opcional)</span>
+                </label>
+                <textarea
+                  id="session-notes"
+                  rows={4}
+                  maxLength={500}
+                  placeholder="O que você estudou? Dúvidas, resumos, pontos importantes..."
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 resize-none transition-all"
+                />
+                <p className="mt-1 text-right text-xs text-slate-400">{notes.length}/500</p>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  id="btn-session-discard"
+                  type="button"
+                  onClick={handleCancel}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-red-50 hover:border-red-300 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400 transition-all"
+                >
+                  Descartar
+                </button>
+                <button
+                  id="btn-session-save"
+                  type="button"
+                  onClick={handleSaveSession}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                >
+                  Salvar Sessão
+                </button>
+              </div>
+            </div>
+          </Modal>
+        </div>
+      );
+    }
+
+    // =============================================
+    // PALETA DE CORES DOS POST-ITS
+    // =============================================
+
+    const NOTE_COLORS = [
+      { id: 'yellow', bg: '#FEF9C3', border: '#FDE047', text: '#713F12', shadow: 'rgba(250,204,21,0.35)' },
+      { id: 'green',  bg: '#DCFCE7', border: '#86EFAC', text: '#14532D', shadow: 'rgba(74,222,128,0.30)' },
+      { id: 'blue',   bg: '#DBEAFE', border: '#93C5FD', text: '#1E3A8A', shadow: 'rgba(96,165,250,0.30)' },
+      { id: 'pink',   bg: '#FCE7F3', border: '#F9A8D4', text: '#831843', shadow: 'rgba(244,114,182,0.30)' },
+      { id: 'purple', bg: '#EDE9FE', border: '#C4B5FD', text: '#581C87', shadow: 'rgba(167,139,250,0.30)' },
+    ];
+
+    // =============================================
+    // COMPONENTE: CARD DO POST-IT
+    // =============================================
+
+    function PostitCard({ note, subjects, onUpdate, onDelete, onTogglePin, isDragging, isDragOver, onDragStart, onDragOver, onDrop, onDragEnd }) {
+      const [showColorPicker, setShowColorPicker] = useState(false);
+      const [showSubjectPicker, setShowSubjectPicker] = useState(false);
+      const [confirmDelete, setConfirmDelete] = useState(false);
+
+      const colorDef      = NOTE_COLORS.find(c => c.id === note.color) || NOTE_COLORS[0];
+      const linkedSubject = subjects.find(s => s.id === note.subjectId);
+      const subjColor     = SUBJECT_COLORS.find(c => c.id === linkedSubject?.color);
+
+      function addTask() {
+        const newTask = { id: `t-${Date.now()}`, text: '', done: false };
+        onUpdate(note.id, { tasks: [...(note.tasks || []), newTask] });
+        setTimeout(() => {
+          const inputs = document.querySelectorAll(`[data-note-id="${note.id}"] .task-input`);
+          if (inputs.length) inputs[inputs.length - 1].focus();
+        }, 50);
+      }
+
+      function toggleTask(taskId) {
+        onUpdate(note.id, { tasks: note.tasks.map(t => t.id === taskId ? { ...t, done: !t.done } : t) });
+      }
+
+      function updateTaskText(taskId, text) {
+        onUpdate(note.id, { tasks: note.tasks.map(t => t.id === taskId ? { ...t, text } : t) });
+      }
+
+      function removeTask(taskId) {
+        onUpdate(note.id, { tasks: note.tasks.filter(t => t.id !== taskId) });
+      }
+
+      function handleTaskKeyDown(e, taskId, idx) {
+        if (e.key === 'Enter') { e.preventDefault(); addTask(); }
+        if (e.key === 'Backspace' && note.tasks[idx].text === '') {
+          e.preventDefault();
+          removeTask(taskId);
+        }
+      }
+
+      function switchToTasks() {
+        const existingTasks = (note.content || '')
+          .split('\n')
+          .map(l => l.trim())
+          .filter(Boolean)
+          .map(text => ({ id: `t-${Date.now()}-${Math.random().toString(36).slice(2,5)}`, text, done: false }));
+        onUpdate(note.id, {
+          mode: 'tasks',
+          tasks: existingTasks.length ? existingTasks : [{ id: `t-${Date.now()}`, text: '', done: false }],
+        });
+      }
+
+      function switchToText() {
+        const content = (note.tasks || []).map(t => t.text).filter(Boolean).join('\n');
+        onUpdate(note.id, { mode: 'text', content });
+      }
+
+      const isTaskMode = note.mode === 'tasks';
+      const doneTasks  = (note.tasks || []).filter(t => t.done).length;
+      const totalTasks = (note.tasks || []).length;
+
+      return (
+        <div
+          data-note-id={note.id}
+          draggable
+          onDragStart={e => onDragStart(e, note.id)}
+          onDragOver={e => onDragOver(e, note.id)}
+          onDrop={e => onDrop(e, note.id)}
+          onDragEnd={onDragEnd}
+          className="relative flex flex-col rounded-2xl p-0 overflow-hidden transition-all duration-200"
+          style={{
+            backgroundColor: colorDef.bg,
+            border: isDragOver ? `2px dashed ${colorDef.border}` : `1px solid ${colorDef.border}`,
+            boxShadow: isDragging
+              ? `0 2px 8px ${colorDef.shadow}`
+              : `0 6px 24px ${colorDef.shadow}, 0 2px 6px rgba(0,0,0,0.08)`,
+            opacity: isDragging ? 0.45 : 1,
+            transform: isDragOver ? 'scale(1.025) rotate(0.5deg)' : 'scale(1)',
+            cursor: isDragging ? 'grabbing' : 'grab',
+            minHeight: 180,
+          }}
+        >
+          <div
+            className="flex items-center justify-between px-3 py-2 select-none"
+            style={{ backgroundColor: colorDef.border + '80' }}
+          >
+            <div className="flex flex-col gap-0.5 opacity-50">
+              <div className="w-5 h-0.5 rounded" style={{ backgroundColor: colorDef.text }} />
+              <div className="w-5 h-0.5 rounded" style={{ backgroundColor: colorDef.text }} />
+              <div className="w-5 h-0.5 rounded" style={{ backgroundColor: colorDef.text }} />
+            </div>
+
+            <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+              <button
+                title={note.pinned ? 'Desafixar' : 'Fixar no topo'}
+                onClick={() => onTogglePin(note.id)}
+                className="p-1 rounded-lg transition-all hover:scale-110"
+                style={{ color: note.pinned ? colorDef.text : colorDef.text + '70' }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill={note.pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="17" x2="12" y2="22"/>
+                  <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/>
+                </svg>
+              </button>
+
+              <div className="relative">
+                <button
+                  title="Mudar cor"
+                  onClick={() => { setShowColorPicker(v => !v); setShowSubjectPicker(false); }}
+                  className="w-4 h-4 rounded-full border-2 transition-all hover:scale-125"
+                  style={{ backgroundColor: colorDef.border, borderColor: colorDef.text + '60' }}
+                />
+                {showColorPicker && (
+                  <div
+                    className="absolute right-0 top-6 z-50 flex gap-1.5 p-2 rounded-xl shadow-xl"
+                    style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0' }}
+                  >
+                    {NOTE_COLORS.map(c => (
+                      <button
+                        key={c.id}
+                        title={c.id}
+                        onClick={() => { onUpdate(note.id, { color: c.id }); setShowColorPicker(false); }}
+                        className="w-5 h-5 rounded-full border-2 transition-all hover:scale-125"
+                        style={{
+                          backgroundColor: c.bg,
+                          borderColor: note.color === c.id ? c.text : c.border,
+                          outline: note.color === c.id ? `2px solid ${c.text}` : 'none',
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {confirmDelete ? (
+                <>
+                  <button
+                    onClick={() => { setConfirmDelete(false); }}
+                    className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                    style={{ color: colorDef.text, backgroundColor: colorDef.border + '60' }}
+                  >Não</button>
+                  <button
+                    onClick={() => onDelete(note.id)}
+                    className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-500 text-white"
+                  >Sim</button>
+                </>
+              ) : (
+                <button
+                  title="Excluir nota"
+                  onClick={() => setConfirmDelete(true)}
+                  className="p-1 rounded-lg transition-all hover:scale-110"
+                  style={{ color: colorDef.text + '80' }}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-col flex-1 px-4 py-3 gap-2" onClick={() => { setShowColorPicker(false); setShowSubjectPicker(false); }}>
+            <input
+              type="text"
+              placeholder="Título..."
+              value={note.title}
+              maxLength={60}
+              onChange={e => onUpdate(note.id, { title: e.target.value })}
+              onClick={e => e.stopPropagation()}
+              className="w-full bg-transparent border-none outline-none text-sm font-bold placeholder-opacity-50 truncate"
+              style={{ color: colorDef.text, caretColor: colorDef.text }}
+            />
+
+            <div className="h-px" style={{ backgroundColor: colorDef.border }} />
+
+            {!isTaskMode && (
+              <textarea
+                placeholder="Escreva sua nota aqui..."
+                value={note.content || ''}
+                onChange={e => onUpdate(note.id, { content: e.target.value })}
+                onClick={e => e.stopPropagation()}
+                rows={4}
+                className="flex-1 w-full bg-transparent border-none outline-none text-xs resize-none placeholder-opacity-60 leading-relaxed"
+                style={{ color: colorDef.text, caretColor: colorDef.text, minHeight: 80 }}
+              />
+            )}
+
+            {isTaskMode && (
+              <div className="flex flex-col gap-1.5" onClick={e => e.stopPropagation()}>
+                {(note.tasks || []).map((task, idx) => (
+                  <div key={task.id} className="flex items-center gap-2 group/task">
+                    <input
+                      type="checkbox"
+                      checked={task.done}
+                      onChange={() => toggleTask(task.id)}
+                      className="flex-shrink-0 w-3.5 h-3.5 rounded cursor-pointer"
+                      style={{ accentColor: colorDef.text }}
+                    />
+                    <input
+                      type="text"
+                      value={task.text}
+                      placeholder="Nova tarefa..."
+                      onChange={e => updateTaskText(task.id, e.target.value)}
+                      onKeyDown={e => handleTaskKeyDown(e, task.id, idx)}
+                      className={`task-input flex-1 bg-transparent border-none outline-none text-xs ${
+                        task.done ? 'line-through opacity-50' : ''
+                      }`}
+                      style={{ color: colorDef.text, caretColor: colorDef.text }}
+                    />
+                    <button
+                      onClick={() => removeTask(task.id)}
+                      className="opacity-0 group-hover/task:opacity-100 transition-opacity p-0.5"
+                      style={{ color: colorDef.text + '80' }}
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={addTask}
+                  className="flex items-center gap-1 text-[10px] font-semibold mt-1 opacity-60 hover:opacity-100 transition-opacity"
+                  style={{ color: colorDef.text }}
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                  </svg>
+                  Adicionar item
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div
+            className="flex items-center justify-between gap-2 px-3 py-2 mt-auto"
+            style={{ borderTop: `1px solid ${colorDef.border}` }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="relative flex-1 min-w-0">
+              <button
+                onClick={() => { setShowSubjectPicker(v => !v); setShowColorPicker(false); }}
+                className="flex items-center gap-1.5 max-w-full text-left"
+              >
+                {linkedSubject ? (
+                  <span
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold truncate max-w-[120px]"
+                    style={{
+                      backgroundColor: subjColor?.light || '#e2e8f0',
+                      color: subjColor?.bg || '#475569',
+                      border: `1px solid ${subjColor?.bg || '#cbd5e1'}`,
+                    }}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: subjColor?.bg || '#64748b' }} />
+                    {linkedSubject.name}
+                  </span>
+                ) : (
+                  <span className="text-[10px] opacity-50 hover:opacity-80 transition-opacity" style={{ color: colorDef.text }}>
+                    + disciplina
+                  </span>
+                )}
+              </button>
+
+              {showSubjectPicker && (
+                <div
+                  className="absolute left-0 bottom-7 z-50 min-w-[160px] rounded-xl shadow-xl overflow-hidden"
+                  style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0' }}
+                >
+                  <button
+                    onClick={() => { onUpdate(note.id, { subjectId: null }); setShowSubjectPicker(false); }}
+                    className="w-full text-left text-xs px-3 py-2 text-slate-500 hover:bg-slate-50"
+                  >
+                    Sem disciplina
+                  </button>
+                  {subjects.map(s => {
+                    const sc = SUBJECT_COLORS.find(c => c.id === s.color);
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => { onUpdate(note.id, { subjectId: s.id }); setShowSubjectPicker(false); }}
+                        className="w-full flex items-center gap-2 text-left text-xs px-3 py-2 hover:bg-slate-50"
+                      >
+                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: sc?.bg || '#64748b' }} />
+                        <span className="truncate text-slate-700">{s.name}</span>
+                      </button>
+                    );
+                  })}
+                  {subjects.length === 0 && (
+                    <p className="text-xs text-slate-400 px-3 py-2">Nenhuma disciplina</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {isTaskMode && totalTasks > 0 && (
+                <span className="text-[10px] font-bold opacity-60" style={{ color: colorDef.text }}>
+                  {doneTasks}/{totalTasks}
+                </span>
+              )}
+              <button
+                title={isTaskMode ? 'Modo texto' : 'Modo lista de tarefas'}
+                onClick={isTaskMode ? switchToText : switchToTasks}
+                className="p-1 rounded-lg transition-all hover:scale-110 opacity-60 hover:opacity-100"
+                style={{ color: colorDef.text }}
+              >
+                {isTaskMode ? (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="17" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="17" y1="18" x2="3" y2="18"/>
+                  </svg>
+                ) : (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                  </svg>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // =============================================
+    // PÁGINA: MURAL DE ANOTAÇÕES
+    // =============================================
+
+    const NOTE_DEFAULT_COLORS = ['yellow','green','blue','pink','purple'];
+    let _noteColorIdx = 0;
+    function nextNoteColor() {
+      const c = NOTE_DEFAULT_COLORS[_noteColorIdx % NOTE_DEFAULT_COLORS.length];
+      _noteColorIdx++;
+      return c;
+    }
+
+    function NotesPage() {
+      const [subjects]             = useLocalStorage('studyflow-subjects', []);
+      const [notes, setNotes]      = useLocalStorage('studyflow-notes', []);
+      const [draggedId, setDraggedId]   = useState(null);
+      const [dragOverId, setDragOverId] = useState(null);
+      const [filterColor, setFilterColor] = useState(null);
+      const [filterSubject, setFilterSubject] = useState(null);
+
+      const sortedNotes = [...notes]
+        .filter(n => !filterColor   || n.color     === filterColor)
+        .filter(n => !filterSubject || n.subjectId === filterSubject)
+        .sort((a, b) => {
+          if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+          return (a.order ?? 0) - (b.order ?? 0);
+        });
+
+      function addNote() {
+        const newNote = {
+          id: `note-${Date.now()}-${Math.random().toString(36).slice(2,5)}`,
+          title: '',
+          content: '',
+          color: nextNoteColor(),
+          subjectId: null,
+          pinned: false,
+          order: notes.length,
+          mode: 'text',
+          tasks: [],
+          createdAt: new Date().toISOString(),
+        };
+        setNotes(prev => [newNote, ...prev]);
+      }
+
+      function updateNote(id, updates) {
+        setNotes(prev => prev.map(n => n.id === id ? { ...n, ...updates } : n));
+      }
+
+      function deleteNote(id) {
+        setNotes(prev => prev.filter(n => n.id !== id));
+      }
+
+      function togglePin(id) {
+        setNotes(prev => prev.map(n => n.id === id ? { ...n, pinned: !n.pinned } : n));
+      }
+
+      function handleDragStart(e, id) {
+        setDraggedId(id);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', id);
+      }
+
+      function handleDragOver(e, id) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (id !== draggedId) setDragOverId(id);
+      }
+
+      function handleDrop(e, targetId) {
+        e.preventDefault();
+        if (!draggedId || draggedId === targetId) {
+          setDraggedId(null); setDragOverId(null); return;
+        }
+        setNotes(prev => {
+          const arr = [...prev];
+          const fromIdx = arr.findIndex(n => n.id === draggedId);
+          const toIdx   = arr.findIndex(n => n.id === targetId);
+          if (fromIdx === -1 || toIdx === -1) return prev;
+          const [removed] = arr.splice(fromIdx, 1);
+          arr.splice(toIdx, 0, removed);
+          return arr.map((n, i) => ({ ...n, order: i }));
+        });
+        setDraggedId(null); setDragOverId(null);
+      }
+
+      function handleDragEnd() {
+        setDraggedId(null); setDragOverId(null);
+      }
+
+      const pinnedCount = notes.filter(n => n.pinned).length;
+
+      return (
+        <div className="animate-fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-800 dark:text-white">Mural de Anotações</h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                {notes.length === 0 ? 'Nenhuma nota ainda' : `${notes.length} nota${notes.length > 1 ? 's' : ''}${pinnedCount > 0 ? ` · ${pinnedCount} fixada${pinnedCount > 1 ? 's' : ''}` : ''}`}
+              </p>
+            </div>
+            <button
+              id="btn-add-note"
+              onClick={addNote}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              Novo Post-it
+            </button>
+          </div>
+
+          {notes.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 mb-6">
+              <span className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mr-1">Filtrar:</span>
+              {NOTE_COLORS.map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => setFilterColor(filterColor === c.id ? null : c.id)}
+                  title={c.id}
+                  className="w-5 h-5 rounded-full border-2 transition-all hover:scale-125"
+                  style={{
+                    backgroundColor: c.bg,
+                    borderColor: filterColor === c.id ? c.text : c.border,
+                    outline: filterColor === c.id ? `2px solid ${c.text}` : 'none',
+                  }}
+                />
+              ))}
+              {subjects.length > 0 && (
+                <select
+                  value={filterSubject || ''}
+                  onChange={e => setFilterSubject(e.target.value || null)}
+                  className="ml-2 text-xs px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                >
+                  <option value="">Todas as disciplinas</option>
+                  {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              )}
+              {(filterColor || filterSubject) && (
+                <button
+                  onClick={() => { setFilterColor(null); setFilterSubject(null); }}
+                  className="text-xs text-slate-400 hover:text-red-500 transition-colors ml-1 underline"
+                >
+                  Limpar filtros
+                </button>
+              )}
+            </div>
+          )}
+
+          {notes.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div className="relative mb-6">
+                <div className="absolute -left-8 -top-2 w-20 h-20 rounded-xl rotate-[-8deg] shadow-md" style={{ backgroundColor: '#FEF9C3' }} />
+                <div className="absolute -right-8 top-0 w-20 h-20 rounded-xl rotate-[6deg] shadow-md" style={{ backgroundColor: '#FCE7F3' }} />
+                <div className="relative w-24 h-24 rounded-xl shadow-lg flex items-center justify-center" style={{ backgroundColor: '#DBEAFE' }}>
+                  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#1E3A8A" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                  </svg>
+                </div>
+              </div>
+              <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-1">Mural vazio</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 max-w-xs">
+                Crie post-its para guardar ideias, anotações e listas de tarefas.
+              </p>
+              <button
+                onClick={addNote}
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Criar primeiro Post-it
+              </button>
+            </div>
+          ) : sortedNotes.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-slate-500 dark:text-slate-400 text-sm">Nenhuma nota encontrada para os filtros selecionados.</p>
+            </div>
+          ) : (
+            <div
+              className="grid gap-4"
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}
+              onDragOver={e => e.preventDefault()}
+            >
+              {sortedNotes.map(note => (
+                <PostitCard
+                  key={note.id}
+                  note={note}
+                  subjects={subjects}
+                  onUpdate={updateNote}
+                  onDelete={deleteNote}
+                  onTogglePin={togglePin}
+                  isDragging={draggedId === note.id}
+                  isDragOver={dragOverId === note.id}
+                  onDragStart={handleDragStart}
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                  onDragEnd={handleDragEnd}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // =============================================
+    // BANCO DE DADOS NATIVO: INDEXEDDB
+    // =============================================
+
+    const DB_NAME    = 'StudyFlowFilesDB';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'files';
+
+    function openStudyFlowDB() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onupgradeneeded = (event) => {
+          const db = event.target.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+            store.createIndex('subjectId', 'subjectId', { unique: false });
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror   = () => reject(request.error);
+      });
+    }
+
+    function formatFileSize(bytes) {
+      if (!bytes || bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    function useIndexedDBFiles() {
+      const [filesList, setFilesList] = useState([]);
+      const [loading, setLoading]     = useState(true);
+      const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+      const [previewFile, setPreviewFile] = useState(null); // <-- CORRIGIDO: Estado adicionado
+
+      useEffect(() => {
+        loadFiles();
+      }, []);
+
+      async function loadFiles() {
+        try {
+          const db = await openStudyFlowDB();
+          const tx = db.transaction(STORE_NAME, 'readonly');
+          const store = tx.objectStore(STORE_NAME);
+          const req = store.getAll();
+          req.onsuccess = () => {
+            const list = req.result.map(f => ({
+              id: f.id,
+              subjectId: f.subjectId,
+              name: f.name,
+              type: f.type,
+              size: f.size,
+              uploadedAt: f.uploadedAt,
+            }));
+            setFilesList(list);
+            setLoading(false);
+          };
+          req.onerror = () => setLoading(false);
+        } catch (err) {
+          console.error('Erro ao abrir IndexedDB:', err);
+          setLoading(false);
+        }
+      }
+
+      async function uploadFile(file, subjectId) {
+        const db = await openStudyFlowDB();
+        const id = `file-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        const fileRecord = {
+          id,
+          subjectId,
+          name: file.name,
+          type: file.type || 'application/octet-stream',
+          size: file.size,
+          uploadedAt: new Date().toISOString(),
+          data: file,
+        };
+
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_NAME, 'readwrite');
+          const store = tx.objectStore(STORE_NAME);
+          const req = store.put(fileRecord);
+          req.onsuccess = () => {
+            const metadata = {
+              id: fileRecord.id,
+              subjectId: fileRecord.subjectId,
+              name: fileRecord.name,
+              type: fileRecord.type,
+              size: fileRecord.size,
+              uploadedAt: fileRecord.uploadedAt,
+            };
+            setFilesList(prev => [metadata, ...prev]);
+            resolve(metadata);
+          };
+          req.onerror = () => reject(req.error);
+        });
+      }
+
+      async function viewOrDownloadFile(fileId) {
+        const db = await openStudyFlowDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_NAME, 'readonly');
+          const store = tx.objectStore(STORE_NAME);
+          const req = store.get(fileId);
+          req.onsuccess = () => {
+            const record = req.result;
+            if (!record || !record.data) {
+              alert('Arquivo não encontrado no banco de dados local.');
+              return resolve();
+            }
+            const blob = record.data instanceof Blob ? record.data : new Blob([record.data], { type: record.type });
+            const url  = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.download = record.name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
+            resolve();
+          };
+          req.onerror = () => reject(req.error);
+        });
+      }
+
+      async function deleteFile(fileId) {
+        const db = await openStudyFlowDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_NAME, 'readwrite');
+          const store = tx.objectStore(STORE_NAME);
+          const req = store.delete(fileId);
+          req.onsuccess = () => {
+            setFilesList(prev => prev.filter(f => f.id !== fileId));
+            resolve();
+          };
+          req.onerror = () => reject(req.error);
+        });
+      }
+
+      async function clearAllFiles() {
+        const db = await openStudyFlowDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_NAME, 'readwrite');
+          const store = tx.objectStore(STORE_NAME);
+          const req = store.clear();
+          req.onsuccess = () => {
+            setFilesList([]);
+            setIsClearModalOpen(false);
+            resolve();
+          };
+          req.onerror = () => reject(req.error);
+        });
+      }
+
+      return {
+        filesList,
+        loading,
+        previewFile,
+        setPreviewFile,
+        isClearModalOpen,
+        setIsClearModalOpen,
+        uploadFile,
+        viewOrDownloadFile,
+        deleteFile,
+        clearAllFiles,
+      };
+    }
+
+    function FilePreviewModal({ file, onClose, onDownload }) {
+      const [blobUrl, setBlobUrl] = useState(null);
+      const [loading, setLoading] = useState(true);
+
+      useEffect(() => {
+        if (!file) return;
+
+        let isMounted = true;
+        let url = null;
+
+        async function loadBlob() {
+          try {
+            const db = await openStudyFlowDB();
+            const tx = db.transaction(STORE_NAME, 'readonly');
+            const store = tx.objectStore(STORE_NAME);
+            const req = store.get(file.id);
+            req.onsuccess = () => {
+              if (!isMounted) return;
+              const record = req.result;
+              if (record && record.data) {
+                const blob = record.data instanceof Blob ? record.data : new Blob([record.data], { type: record.type });
+                url = URL.createObjectURL(blob);
+                setBlobUrl(url);
+              }
+              setLoading(false);
+            };
+            req.onerror = () => {
+              if (isMounted) setLoading(false);
+            };
+          } catch (err) {
+            console.error('Erro ao carregar preview:', err);
+            if (isMounted) setLoading(false);
+          }
+        }
+
+        loadBlob();
+
+        function handleKeyDown(e) {
+          if (e.key === 'Escape') onClose();
+        }
+        window.addEventListener('keydown', handleKeyDown);
+
+        return () => {
+          isMounted = false;
+          window.removeEventListener('keydown', handleKeyDown);
+          if (url) {
+            URL.revokeObjectURL(url);
+          }
+        };
+      }, [file]);
+
+      if (!file) return null;
+
+      const isPdf   = file.type?.includes('pdf');
+      const isImage = file.type?.includes('image');
+
+      return (
+        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/90 backdrop-blur-md animate-fade-in">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/90 text-white flex-shrink-0">
+            <div className="flex items-center gap-3 min-w-0">
+              {isPdf ? (
+                <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/30">PDF</span>
+              ) : isImage ? (
+                <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">IMG</span>
+              ) : (
+                <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">DOC</span>
+              )}
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold truncate text-white" title={file.name}>
+                  {file.name}
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {formatFileSize(file.size)} · Enviado em {new Date(file.uploadedAt).toLocaleDateString('pt-BR')}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <button
+                id="btn-preview-download"
+                onClick={() => onDownload(file.id)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg transition-all"
+                title="Baixar cópia do arquivo"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                Baixar Cópia
+              </button>
+
+              <button
+                id="btn-close-preview"
+                onClick={onClose}
+                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all"
+                title="Fechar visualização (Esc)"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 p-4 md:p-8 flex items-center justify-center overflow-hidden relative">
+            {loading ? (
+              <div className="flex flex-col items-center gap-3 text-slate-400 animate-pulse">
+                <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-xs font-medium">Carregando visualizador de arquivo...</p>
+              </div>
+            ) : !blobUrl ? (
+              <div className="text-center text-slate-400">
+                <p className="text-sm font-bold text-slate-200">Não foi possível carregar o arquivo.</p>
+              </div>
+            ) : isPdf ? (
+              <iframe
+                src={blobUrl}
+                title={file.name}
+                className="w-full h-full max-w-6xl rounded-2xl bg-white shadow-2xl border border-slate-800"
+              />
+            ) : isImage ? (
+              <div className="max-w-5xl max-h-full flex items-center justify-center p-2">
+                <img
+                  src={blobUrl}
+                  alt={file.name}
+                  className="max-h-[82vh] max-w-full object-contain rounded-2xl shadow-2xl border border-slate-800"
+                />
+              </div>
+            ) : (
+              <div className="text-center p-8 bg-slate-900 border border-slate-800 rounded-2xl max-w-md">
+                <div className="w-16 h-16 rounded-2xl bg-blue-500/20 text-blue-400 flex items-center justify-center mx-auto mb-4">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                  </svg>
+                </div>
+                <h4 className="text-base font-bold text-white mb-1">{file.name}</h4>
+                <p className="text-xs text-slate-400 mb-6">
+                  Este formato ({file.type || 'documento'}) não suporta pré-visualização direta no navegador.
+                </p>
+                <button
+                  onClick={() => onDownload(file.id)}
+                  className="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold transition-all flex items-center justify-center gap-2"
+                >
+                  Baixar Arquivo ({formatFileSize(file.size)})
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function ConfirmClearFilesModal({ isOpen, onClose, onConfirm, totalFiles }) {
+      return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Limpar Todos os Arquivos">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 rounded-xl">
+              <div className="w-10 h-10 rounded-lg bg-red-100 dark:bg-red-900/60 flex items-center justify-center flex-shrink-0 text-red-600 dark:text-red-400">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+              </div>
+              <div className="text-xs">
+                <p className="font-bold text-red-900 dark:text-red-200">Atenção: Ação Irreversível</p>
+                <p className="text-red-700 dark:text-red-300 mt-0.5">
+                  Existem {totalFiles} arquivo(s) armazenado(s) no IndexedDB do navegador.
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              Tem certeza que deseja apagar todos os arquivos armazenados de todas as disciplinas?
+            </p>
+
+            <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+              <button
+                onClick={onClose}
+                className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                id="btn-confirm-clear-all"
+                onClick={onConfirm}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-md shadow-red-600/30 transition-all"
+              >
+                Apagar Todos os Arquivos
+              </button>
+            </div>
+          </div>
+        </Modal>
+      );
+    }
+
+    // =============================================
+    // PÁGINA: DASHBOARD DE PROGRESSO
+    // =============================================
+
+    function useChart(canvasRef, buildConfig, deps) {
+      const chartRef = useRef(null);
+      useEffect(() => {
+        if (!canvasRef.current || !window.Chart) return;
+        if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+        const config = buildConfig();
+        if (!config) return;
+        chartRef.current = new window.Chart(canvasRef.current, config);
+        return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
+      }, deps);
+    }
+
+    function toHours(sec) { return Math.round((sec / 3600) * 10) / 10; }
+
+    function isoWeek(date) {
+      const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    }
+
+    function ProgressPage() {
+      const [subjects] = useLocalStorage('studyflow-subjects', []);
+      const [sessions] = useLocalStorage('studyflow-sessions', []);
+      const [histFilter, setHistFilter] = useState('');
+      const [histPage, setHistPage]     = useState(1);
+      const HIST_PER_PAGE = 10;
+
+      const weeklyChartRef   = useRef(null);
+      const subjectsChartRef = useRef(null);
+
+      const now   = new Date();
+      const today = now.toDateString();
+
+      const currentWeek  = isoWeek(now);
+      const currentYear  = now.getFullYear();
+      const currentMonth = now.getMonth();
+
+      const weekSec   = sessions.filter(s => {
+        const d = new Date(s.date);
+        return isoWeek(d) === currentWeek && d.getFullYear() === currentYear;
+      }).reduce((a, s) => a + s.durationSeconds, 0);
+
+      const monthSec = sessions.filter(s => {
+        const d = new Date(s.date);
+        return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+      }).reduce((a, s) => a + s.durationSeconds, 0);
+
+      const totalSec = sessions.reduce((a, s) => a + s.durationSeconds, 0);
+
+      const todaySec = sessions.filter(s => new Date(s.date).toDateString() === today)
+        .reduce((a, s) => a + s.durationSeconds, 0);
+
+      const totalSessions = sessions.length;
+
+      const last7 = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(now);
+        d.setDate(d.getDate() - (6 - i));
+        return d;
+      });
+
+      const last7Labels = last7.map(d =>
+        d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit' })
+      );
+
+      const last7Hours = last7.map(d => {
+        const ds = d.toDateString();
+        return toHours(
+          sessions.filter(s => new Date(s.date).toDateString() === ds)
+            .reduce((a, s) => a + s.durationSeconds, 0)
+        );
+      });
+
+      const isDark = document.documentElement.classList.contains('dark');
+      const gridColor   = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)';
+      const tickColor   = isDark ? '#94a3b8' : '#64748b';
+      const tooltipBg   = isDark ? '#1e293b' : '#fff';
+      const tooltipText = isDark ? '#f1f5f9' : '#1e293b';
+
+      useChart(weeklyChartRef, () => ({
+        type: 'bar',
+        data: {
+          labels: last7Labels,
+          datasets: [{
+            label: 'Horas estudadas',
+            data: last7Hours,
+            backgroundColor: last7Hours.map((_, i) =>
+              i === 6 ? '#10B981' : (isDark ? 'rgba(99,102,241,0.55)' : 'rgba(99,102,241,0.45)')
+            ),
+            borderColor: last7Hours.map((_, i) => i === 6 ? '#059669' : '#6366f1'),
+            borderWidth: 1.5,
+            borderRadius: 8,
+            borderSkipped: false,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: tooltipBg,
+              titleColor: tooltipText,
+              bodyColor: tickColor,
+              borderColor: isDark ? '#334155' : '#e2e8f0',
+              borderWidth: 1,
+              padding: 10,
+              callbacks: {
+                label: ctx => ` ${ctx.parsed.y}h estudadas`,
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: gridColor },
+              ticks: { color: tickColor, font: { size: 11, family: 'Inter' } },
+            },
+            y: {
+              beginAtZero: true,
+              grid: { color: gridColor },
+              ticks: {
+                color: tickColor,
+                font: { size: 11, family: 'Inter' },
+                callback: v => `${v}h`,
+              },
+            }
+          }
+        }
+      }), [sessions.length, isDark]);
+
+      const subjectSecs = subjects.map(s => ({
+        subject: s,
+        sec: sessions.filter(sess => sess.subjectId === s.id)
+          .reduce((a, sess) => a + sess.durationSeconds, 0)
+      })).filter(x => x.sec > 0);
+
+      const doughnutColors = [
+        '#6366f1','#10B981','#3B82F6','#EC4899','#F97316',
+        '#8B5CF6','#14B8A6','#F59E0B','#EF4444','#84CC16',
+      ];
+
+      useChart(subjectsChartRef, () => {
+        if (subjectSecs.length === 0) return null;
+        return {
+          type: 'doughnut',
+          data: {
+            labels: subjectSecs.map(x => x.subject.name),
+            datasets: [{
+              data: subjectSecs.map(x => toHours(x.sec)),
+              backgroundColor: subjectSecs.map((_, i) => doughnutColors[i % doughnutColors.length]),
+              borderColor: isDark ? '#1e293b' : '#fff',
+              borderWidth: 3,
+              hoverOffset: 8,
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '68%',
+            plugins: {
+              legend: {
+                position: 'bottom',
+                labels: {
+                  color: tickColor,
+                  font: { size: 11, family: 'Inter' },
+                  padding: 14,
+                  boxWidth: 12,
+                  boxHeight: 12,
+                  usePointStyle: true,
+                }
+              },
+              tooltip: {
+                backgroundColor: tooltipBg,
+                titleColor: tooltipText,
+                bodyColor: tickColor,
+                borderColor: isDark ? '#334155' : '#e2e8f0',
+                borderWidth: 1,
+                padding: 10,
+                callbacks: {
+                  label: ctx => ` ${ctx.label}: ${ctx.parsed}h`,
+                }
+              }
+            }
+          }
+        };
+      }, [sessions.length, subjects.length, isDark]);
+
+      const filteredSessions = [...sessions]
+        .filter(s => !histFilter || s.subjectId === histFilter)
+        .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      const totalPages   = Math.ceil(filteredSessions.length / HIST_PER_PAGE);
+      const pagedSessions = filteredSessions.slice((histPage - 1) * HIST_PER_PAGE, histPage * HIST_PER_PAGE);
+
+      useEffect(() => setHistPage(1), [histFilter]);
+
+      const summaryCards = [
+        {
+          label: 'Hoje',
+          value: formatTime(todaySec),
+          sub: `${sessions.filter(s => new Date(s.date).toDateString() === today).length} sessões`,
+          color: '#10B981', bg: 'rgba(16,185,129,0.1)',
+          icon: (
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+          )
+        },
+        {
+          label: 'Esta Semana',
+          value: formatTime(weekSec),
+          sub: `Semana ${currentWeek}`,
+          color: '#6366F1', bg: 'rgba(99,102,241,0.1)',
+          icon: (
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+          )
+        },
+        {
+          label: 'Este Mês',
+          value: formatTime(monthSec),
+          sub: now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
+          color: '#3B82F6', bg: 'rgba(59,130,246,0.1)',
+          icon: (
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+          )
+        },
+        {
+          label: 'Total Acumulado',
+          value: formatTime(totalSec),
+          sub: `${totalSessions} sessão(ões)`,
+          color: '#F97316', bg: 'rgba(249,115,22,0.1)',
+          icon: (
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+          )
+        },
+      ];
+
+      return (
+        <div className="animate-fade-in">
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold text-slate-800 dark:text-white">Progresso</h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+              Acompanhe sua evolução e tempo dedicado aos estudos.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            {summaryCards.map((card, i) => (
+              <div
+                key={i}
+                className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm hover:shadow-md transition-shadow"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">{card.label}</p>
+                    <p className="text-2xl font-black tabular-nums" style={{ color: card.color }}>{card.value}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">{card.sub}</p>
+                  </div>
+                  <div
+                    className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center"
+                    style={{ backgroundColor: card.bg, color: card.color }}
+                  >
+                    {card.icon}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 mb-8">
+            <div className="lg:col-span-3 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-5">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">Últimos 7 Dias</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">Horas estudadas por dia</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: '#10B981' }} />
+                  <span className="text-xs text-slate-400">Hoje</span>
+                  <span className="w-3 h-3 rounded-sm ml-1" style={{ backgroundColor: 'rgba(99,102,241,0.55)' }} />
+                  <span className="text-xs text-slate-400">Anteriores</span>
+                </div>
+              </div>
+              {sessions.length === 0 ? (
+                <div className="flex items-center justify-center h-48 text-slate-400 dark:text-slate-600 text-sm">
+                  Nenhuma sessão registrada ainda.
+                </div>
+              ) : (
+                <div style={{ height: 220, position: 'relative' }}>
+                  <canvas id="weeklyChart" ref={weeklyChartRef} />
+                </div>
+              )}
+            </div>
+
+            <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6 shadow-sm">
+              <div className="mb-5">
+                <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">Por Disciplina</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Proporção de tempo acumulado</p>
+              </div>
+              {subjectSecs.length === 0 ? (
+                <div className="flex items-center justify-center h-48 text-slate-400 dark:text-slate-600 text-sm text-center">
+                  Nenhum dado por disciplina ainda.
+                </div>
+              ) : (
+                <div style={{ height: 220, position: 'relative' }}>
+                  <canvas id="subjectsChart" ref={subjectsChartRef} />
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-5 border-b border-slate-200 dark:border-slate-700">
+              <div>
+                <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">Histórico de Sessões</h2>
+                <p className="text-xs text-slate-400 mt-0.5">{filteredSessions.length} registro(s)</p>
+              </div>
+              <select
+                id="history-subject-filter"
+                value={histFilter}
+                onChange={e => setHistFilter(e.target.value)}
+                className="text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition-all"
+              >
+                <option value="">Todas as disciplinas</option>
+                {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+
+            {filteredSessions.length === 0 ? (
+              <div className="flex items-center justify-center py-12 text-sm text-slate-400 dark:text-slate-600">
+                Nenhuma sessão encontrada.
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 dark:bg-slate-900/50">
+                        <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Disciplina</th>
+                        <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Data</th>
+                        <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Duração</th>
+                        <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Anotações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                      {pagedSessions.map((session, idx) => {
+                        const subj = subjects.find(s => s.id === session.subjectId);
+                        const c    = SUBJECT_COLORS.find(col => col.id === subj?.color);
+                        const d    = new Date(session.date);
+                        return (
+                          <tr
+                            key={session.id}
+                            className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors"
+                          >
+                            <td className="px-5 py-3.5">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className="flex-shrink-0 w-2 h-6 rounded-full"
+                                  style={{ backgroundColor: c?.bg || '#64748b' }}
+                                />
+                                <span className="font-semibold text-slate-700 dark:text-slate-200 truncate max-w-[140px]">
+                                  {subj?.name || <span className="text-slate-400 italic">Removida</span>}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                              <div>
+                                <span className="font-medium text-slate-700 dark:text-slate-300">
+                                  {d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                </span>
+                                <span className="block text-xs mt-0.5 text-slate-400">
+                                  {d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-5 py-3.5">
+                              <span
+                                className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold"
+                                style={{ backgroundColor: (c?.bg || '#64748b') + '20', color: c?.bg || '#64748b' }}
+                              >
+                                {formatTime(session.durationSeconds)}
+                              </span>
+                            </td>
+                            <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 max-w-[200px]">
+                              {session.notes
+                                ? <span className="truncate block" title={session.notes}>📝 {session.notes}</span>
+                                : <span className="text-slate-300 dark:text-slate-600">—</span>
+                              }
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 dark:border-slate-700">
+                    <p className="text-xs text-slate-400">
+                      Página {histPage} de {totalPages} &middot; {filteredSessions.length} registros
+                    </p>
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={() => setHistPage(p => Math.max(1, p - 1))}
+                        disabled={histPage === 1}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                      >
+                        ← Anterior
+                      </button>
+                      <button
+                        onClick={() => setHistPage(p => Math.min(totalPages, p + 1))}
+                        disabled={histPage === totalPages}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                      >
+                        Próxima →
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // =============================================
+    // COMPONENTES DE LAYOUT
+    // =============================================
+
+    const NAV_ITEMS = [
+      {
+        id: 'subjects',
+        label: 'Disciplinas',
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+          </svg>
+        )
+      },
+      {
+        id: 'study',
+        label: 'Estudar Agora',
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+        )
+      },
+      {
+        id: 'notes',
+        label: 'Mural de Notas',
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+          </svg>
+        )
+      },
+      {
+        id: 'schedule',
+        label: 'Cronograma',
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+        )
+      },
+      {
+        id: 'timer',
+        label: 'Pomodoro',
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+          </svg>
+        )
+      },
+      {
+        id: 'progress',
+        label: 'Progresso',
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+          </svg>
+        )
+      },
+      {
+        id: 'tasks',
+        label: 'Tarefas',
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+          </svg>
+        )
+      },
+    ];
+
+    function Sidebar({ activeNav, onNavChange, isCollapsed, onToggleCollapse }) {
+      return (
+        <aside
+          className={`flex flex-col h-screen fixed left-0 top-0 z-40 transition-all duration-300 ${
+            isCollapsed ? 'w-16' : 'w-60'
+          }`}
+          style={{ background: 'linear-gradient(180deg, #1e3a8a 0%, #1e40af 60%, #1d4ed8 100%)' }}
+        >
+          <div className={`flex items-center gap-3 px-4 py-5 border-b border-white/10 ${isCollapsed ? 'justify-center' : ''}`}>
+            <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/40">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+              </svg>
+            </div>
+            {!isCollapsed && (
+              <div className="min-w-0">
+                <span className="text-white font-black text-base tracking-tight">StudyFlow</span>
+                <p className="text-blue-200/70 text-[10px] font-medium tracking-widest uppercase mt-0.5">Organize seus estudos</p>
+              </div>
+            )}
+          </div>
+
+          <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-1">
+            {NAV_ITEMS.map(item => {
+              const isActive = activeNav === item.id;
+              const isComingSoon = !['subjects', 'study', 'notes', 'progress'].includes(item.id);
+              return (
+                <button
+                  key={item.id}
+                  id={`nav-${item.id}`}
+                  onClick={() => !isComingSoon && onNavChange(item.id)}
+                  title={isCollapsed ? item.label : undefined}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 group relative ${
+                    isActive
+                      ? 'bg-white/20 text-white shadow-lg'
+                      : isComingSoon
+                        ? 'text-blue-200/50 cursor-not-allowed'
+                        : 'text-blue-100/80 hover:bg-white/10 hover:text-white'
+                  } ${isCollapsed ? 'justify-center' : ''}`}
+                >
+                  <span className={`flex-shrink-0 ${isActive ? 'text-white' : ''}`}>
+                    {item.icon}
+                  </span>
+                  {!isCollapsed && (
+                    <>
+                      <span className="flex-1 text-left">{item.label}</span>
+                      {isComingSoon && (
+                        <span className="text-[9px] font-bold bg-white/10 text-blue-200/60 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+                          Em breve
+                        </span>
+                      )}
+                    </>
+                  )}
+                  {isActive && (
+                    <span className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-emerald-400 rounded-l-full" />
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+
+          <div className="px-2 pb-4 border-t border-white/10 pt-3">
+            <button
+              id="btn-toggle-sidebar"
+              onClick={onToggleCollapse}
+              title={isCollapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-blue-200/70 hover:bg-white/10 hover:text-white text-sm font-medium transition-all ${isCollapsed ? 'justify-center' : ''}`}
+            >
+              <svg
+                width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                style={{ transform: isCollapsed ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.3s ease' }}
+              >
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+              {!isCollapsed && <span>Recolher</span>}
+            </button>
+          </div>
+        </aside>
+      );
+    }
+
+    // =============================================
+    // COMPONENTE: HEADER (CABEÇALHO)
+    // =============================================
+    function Header({ activeNav, onToggleTheme, theme, onResetAllData }) {
+      const activeItem = NAV_ITEMS.find(i => i.id === activeNav);
+
+      return (
+        <header className="sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 glass border-b border-slate-200 dark:border-slate-700/60 px-6 py-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-bold text-slate-800 dark:text-white">
+              {activeItem?.label || 'Início'}
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              id="btn-reset-all"
+              type="button"
+              onClick={onResetAllData}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+              title="Zerar todo o histórico para um novo usuário"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                <path d="M3 3v5h5"/>
+              </svg>
+              Zerar Dados
+            </button>
+
+            <button
+              id="btn-toggle-theme"
+              type="button"
+              onClick={onToggleTheme}
+              title={theme === 'dark' ? 'Alternar para modo claro' : 'Alternar para modo escuro'}
+              className="relative w-14 h-7 rounded-full transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900 cursor-pointer"
+              style={{ backgroundColor: theme === 'dark' ? '#10B981' : '#CBD5E1' }}
+              aria-label="Alternar tema"
+            >
+              <span
+                className="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow-md flex items-center justify-center transition-transform duration-300"
+                style={{ transform: theme === 'dark' ? 'translateX(28px)' : 'translateX(0px)' }}
+              >
+                {theme === 'dark' ? (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="#0F172A" stroke="none">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                  </svg>
+                ) : (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="#F59E0B" stroke="#F59E0B" strokeWidth="1">
+                    <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                  </svg>
+                )}
+              </span>
+            </button>
+          </div>
+        </header>
+      );
+    }
+
+    // =============================================
+    // APP PRINCIPAL
+    // =============================================
+    function AppContent() {
+      const { theme, toggleTheme } = useTheme();
+      const [activeNav, setActiveNav] = useState('subjects');
+      const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+      const dbState = useIndexedDBFiles();
+
+      // Função para apagar TUDO (Histórico, Disciplinas, Notas e Arquivos)
+      async function handleResetAllData() {
+        const confirmou = window.confirm(
+          "⚠️ ATENÇÃO: Isso vai apagar TODO o histórico de estudos, disciplinas, post-its e arquivos salvos.\n\nDeseja zerar o aplicativo completamente?"
+        );
+        if (confirmou) {
+          try {
+            window.localStorage.clear();
+            await dbState.clearAllFiles();
+          } catch (e) {
+            console.error('Erro ao limpar dados:', e);
+          }
+          window.location.reload();
+        }
+      }
+
+      function renderPage() {
+        switch (activeNav) {
+          case 'subjects':
+            return (
+              <SubjectsPage
+                dbFiles={dbState.filesList}
+                onUploadFile={dbState.uploadFile}
+                onViewFile={dbState.viewOrDownloadFile}
+                onDeleteFile={dbState.deleteFile}
+                onOpenClearAllModal={() => dbState.setIsClearModalOpen(true)}
+                onPreviewFile={dbState.setPreviewFile}
+              />
+            );
+          case 'study':    return <StudyPage />;
+          case 'notes':    return <NotesPage />;
+          case 'progress': return <ProgressPage />;
+          default:
+            return (
+              <div className="flex flex-col items-center justify-center py-24 text-center animate-fade-in">
+                <div className="w-16 h-16 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                  </svg>
+                </div>
+                <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-1">Em desenvolvimento</h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 max-w-xs">
+                  Esta seção será implementada nas próximas fases do projeto.
+                </p>
+              </div>
+            );
+        }
+      }
+
+      const sidebarWidth = sidebarCollapsed ? 64 : 240;
+
+      return (
+        <div className="min-h-screen bg-slate-50 dark:bg-navy-900 text-slate-900 dark:text-white">
+          <Sidebar
+            activeNav={activeNav}
+            onNavChange={setActiveNav}
+            isCollapsed={sidebarCollapsed}
+            onToggleCollapse={() => setSidebarCollapsed(v => !v)}
+          />
+          <div
+            className="flex flex-col min-h-screen transition-all duration-300"
+            style={{ marginLeft: `${sidebarWidth}px` }}
+          >
+            <Header
+              activeNav={activeNav}
+              onToggleTheme={toggleTheme}
+              theme={theme}
+              onResetAllData={handleResetAllData}
+            />
+            <main className="flex-1 p-6 lg:p-8">
+              {renderPage()}
+            </main>
+            <footer className="px-6 py-3 text-center text-xs text-slate-400 dark:text-slate-600 border-t border-slate-200 dark:border-slate-800">
+              StudyFlow © {new Date().getFullYear()} · Arquivos armazenados no IndexedDB do seu navegador
+            </footer>
+          </div>
+
+          <ConfirmClearFilesModal
+            isOpen={dbState.isClearModalOpen}
+            onClose={() => dbState.setIsClearModalOpen(false)}
+            onConfirm={dbState.clearAllFiles}
+            totalFiles={dbState.filesList.length}
+          />
+
+          <FilePreviewModal
+            file={dbState.previewFile}
+            onClose={() => dbState.setPreviewFile(null)}
+            onDownload={dbState.viewOrDownloadFile}
+          />
+        </div>
+      );
+    }
+
+    function App() {
+      return (
+        <ThemeProvider>
+          <AppContent />
+        </ThemeProvider>
+      );
+    }
+
+    // Renderização
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
