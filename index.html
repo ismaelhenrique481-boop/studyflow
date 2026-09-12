@@ -786,19 +786,26 @@
       const [seconds, setSeconds] = useState(0);
       const [status, setStatus] = useState('idle');
       const intervalRef = useRef(null);
+      const startTimeRef = useRef(null);
+      const accumulatedTimeRef = useRef(0);
 
       function start() {
         if (status === 'running') return;
         setStatus('running');
+        startTimeRef.current = Date.now();
+        
         intervalRef.current = setInterval(() => {
-          setSeconds(s => s + 1);
-        }, 1000);
+          const now = Date.now();
+          const elapsed = Math.floor((now - startTimeRef.current) / 1000);
+          setSeconds(accumulatedTimeRef.current + elapsed);
+        }, 200); // Atualiza em intervalos curtos para manter fluidez perfeita
       }
 
       function pause() {
         if (status !== 'running') return;
         clearInterval(intervalRef.current);
         intervalRef.current = null;
+        accumulatedTimeRef.current = seconds;
         setStatus('paused');
       }
 
@@ -810,6 +817,7 @@
       function reset() {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
+        accumulatedTimeRef.current = 0;
         setSeconds(0);
         setStatus('idle');
       }
