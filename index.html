@@ -3492,6 +3492,1268 @@
     }
 
     // =============================================
+    // COMPONENTE: GERENCIADOR DE TAREFAS (TasksPage)
+    // =============================================
+
+    const TASK_PRIORITIES = {
+      urgent: { id: 'urgent', label: 'Urgente', badge: 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30', dot: 'bg-rose-500' },
+      high:   { id: 'high',   label: 'Alta',    badge: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30', dot: 'bg-amber-500' },
+      medium: { id: 'medium', label: 'Média',   badge: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30',     dot: 'bg-blue-500' },
+      low:    { id: 'low',    label: 'Baixa',   badge: 'bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30', dot: 'bg-slate-400' },
+    };
+
+    const TASK_COLUMNS = [
+      {
+        id: 'todo',
+        label: 'A Fazer',
+        badge: 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700',
+        dot: 'bg-slate-400',
+        icon: (
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+        )
+      },
+      {
+        id: 'in_progress',
+        label: 'Em Andamento',
+        badge: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30',
+        dot: 'bg-blue-500',
+        icon: (
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+          </svg>
+        )
+      },
+      {
+        id: 'done',
+        label: 'Concluído',
+        badge: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+        dot: 'bg-emerald-500',
+        icon: (
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+        )
+      }
+    ];
+
+    const SUGGESTED_TASK_TAGS = ['Exercícios', 'Prova', 'Trabalho', 'Revisão', 'Leitura', 'Artigo', 'Projeto', 'Seminário'];
+
+    const INITIAL_TASKS_DATA = [
+      {
+        id: 'task-1',
+        title: 'Resolver lista de exercícios de fixação',
+        description: 'Fazer as questões de cálculo e anotar dúvidas para tirar com o professor.',
+        subjectId: null,
+        priority: 'high',
+        status: 'in_progress',
+        dueDate: new Date(Date.now() + 86400000).toISOString().split('T')[0],
+        subtasks: [
+          { id: 'sub-1', title: 'Questões 1 a 5 (básicas)', completed: true },
+          { id: 'sub-2', title: 'Questões 6 a 12 (avançadas)', completed: false },
+          { id: 'sub-3', title: 'Anotar fórmulas no mural', completed: false }
+        ],
+        tags: ['Exercícios', 'Revisão'],
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: 'task-2',
+        title: 'Leitura do capítulo 3 e elaboração de resumo',
+        description: 'Sintetizar os principais conceitos teóricos e montar mapa conceitual.',
+        subjectId: null,
+        priority: 'medium',
+        status: 'todo',
+        dueDate: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
+        subtasks: [
+          { id: 'sub-4', title: 'Ler páginas 45 a 70', completed: false },
+          { id: 'sub-5', title: 'Destacar termos-chave', completed: false }
+        ],
+        tags: ['Leitura', 'Trabalho'],
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: 'task-3',
+        title: 'Configurar cronograma de horários do semestre',
+        description: 'Distribuir blocos semanais de dedicação para cada disciplina cadastrada.',
+        subjectId: null,
+        priority: 'low',
+        status: 'done',
+        dueDate: new Date().toISOString().split('T')[0],
+        subtasks: [
+          { id: 'sub-6', title: 'Definir metas de horas', completed: true },
+          { id: 'sub-7', title: 'Preencher grade semanal', completed: true }
+        ],
+        tags: ['Projeto'],
+        createdAt: new Date().toISOString(),
+        completedAt: new Date().toISOString()
+      }
+    ];
+
+    function formatTaskDueDate(dueDate) {
+      if (!dueDate) return null;
+      try {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const parts = dueDate.split('-');
+        if (parts.length !== 3) return null;
+        const target = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        target.setHours(0, 0, 0, 0);
+
+        const diffTime = target.getTime() - today.getTime();
+        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+        const formattedDate = `${String(parts[2]).padStart(2, '0')}/${String(parts[1]).padStart(2, '0')}`;
+
+        if (diffDays < 0) {
+          return {
+            text: `Atrasada (${formattedDate})`,
+            isOverdue: true,
+            className: 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 font-semibold'
+          };
+        }
+        if (diffDays === 0) {
+          return {
+            text: 'Vence hoje',
+            isToday: true,
+            className: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 font-semibold'
+          };
+        }
+        if (diffDays === 1) {
+          return {
+            text: 'Vence amanhã',
+            isTomorrow: true,
+            className: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30 font-medium'
+          };
+        }
+        return {
+          text: formattedDate,
+          isFuture: true,
+          className: 'bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700/60'
+        };
+      } catch (e) {
+        return null;
+      }
+    }
+
+    // Modal de Criação / Edição de Tarefa
+    function TaskFormModal({ isOpen, onClose, onSave, taskToEdit, subjects }) {
+      const [title, setTitle] = useState('');
+      const [description, setDescription] = useState('');
+      const [subjectId, setSubjectId] = useState('');
+      const [priority, setPriority] = useState('medium');
+      const [status, setStatus] = useState('todo');
+      const [dueDate, setDueDate] = useState('');
+      const [tags, setTags] = useState([]);
+      const [tagInput, setTagInput] = useState('');
+      const [subtasks, setSubtasks] = useState([]);
+      const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
+      const [errors, setErrors] = useState({});
+
+      useEffect(() => {
+        if (taskToEdit) {
+          setTitle(taskToEdit.title || '');
+          setDescription(taskToEdit.description || '');
+          setSubjectId(taskToEdit.subjectId || '');
+          setPriority(taskToEdit.priority || 'medium');
+          setStatus(taskToEdit.status || 'todo');
+          setDueDate(taskToEdit.dueDate || '');
+          setTags(taskToEdit.tags || []);
+          setSubtasks(taskToEdit.subtasks ? [...taskToEdit.subtasks] : []);
+        } else {
+          setTitle('');
+          setDescription('');
+          setSubjectId('');
+          setPriority('medium');
+          setStatus('todo');
+          setDueDate('');
+          setTags([]);
+          setSubtasks([]);
+        }
+        setTagInput('');
+        setNewSubtaskTitle('');
+        setErrors({});
+      }, [taskToEdit, isOpen]);
+
+      function handleAddTag(tagToAdd) {
+        const trimmed = (tagToAdd || tagInput).trim();
+        if (!trimmed) return;
+        if (!tags.includes(trimmed)) {
+          setTags(prev => [...prev, trimmed]);
+        }
+        setTagInput('');
+      }
+
+      function handleRemoveTag(tagToRemove) {
+        setTags(prev => prev.filter(t => t !== tagToRemove));
+      }
+
+      function handleAddSubtask(e) {
+        if (e) e.preventDefault();
+        const trimmed = newSubtaskTitle.trim();
+        if (!trimmed) return;
+        const newSub = {
+          id: `sub-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          title: trimmed,
+          completed: false
+        };
+        setSubtasks(prev => [...prev, newSub]);
+        setNewSubtaskTitle('');
+      }
+
+      function handleRemoveSubtask(subId) {
+        setSubtasks(prev => prev.filter(s => s.id !== subId));
+      }
+
+      function handleToggleSubtask(subId) {
+        setSubtasks(prev => prev.map(s => s.id === subId ? { ...s, completed: !s.completed } : s));
+      }
+
+      function handleSubmit(e) {
+        e.preventDefault();
+        if (!title.trim()) {
+          setErrors({ title: 'O título da tarefa é obrigatório.' });
+          return;
+        }
+
+        onSave({
+          title: title.trim(),
+          description: description.trim(),
+          subjectId: subjectId || null,
+          priority,
+          status,
+          dueDate: dueDate || null,
+          tags,
+          subtasks,
+          completedAt: status === 'done' ? (taskToEdit?.completedAt || new Date().toISOString()) : null
+        });
+        onClose();
+      }
+
+      return (
+        <Modal
+          isOpen={isOpen}
+          onClose={onClose}
+          title={taskToEdit ? 'Editar Tarefa' : 'Nova Tarefa'}
+        >
+          <form onSubmit={handleSubmit} className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+            {/* Título */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Título da Tarefa <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={title}
+                onChange={e => { setTitle(e.target.value); setErrors(err => ({ ...err, title: '' })); }}
+                placeholder="Ex: Resolver lista de cálculo, Redigir resumo..."
+                className={`w-full px-3.5 py-2 rounded-xl border text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 transition-all ${
+                  errors.title ? 'border-red-400 focus:ring-red-400' : 'border-slate-300 dark:border-slate-600 focus:ring-emerald-400'
+                }`}
+                autoFocus
+              />
+              {errors.title && <p className="mt-1 text-xs text-red-500">{errors.title}</p>}
+            </div>
+
+            {/* Descrição */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Descrição ou Instruções <span className="text-slate-400 font-normal">(opcional)</span>
+              </label>
+              <textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                placeholder="Adicione detalhes, referências bibliográficas, orientações..."
+                rows={2}
+                className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-600 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition-all resize-none"
+              />
+            </div>
+
+            {/* Disciplina e Prazo (Grid) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Disciplina Vinculada
+                </label>
+                <select
+                  value={subjectId}
+                  onChange={e => setSubjectId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 text-xs bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer transition-all"
+                >
+                  <option value="">Nenhuma (Geral)</option>
+                  {subjects.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Data Limite de Entrega
+                </label>
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={e => setDueDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 text-xs bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer transition-all"
+                />
+              </div>
+            </div>
+
+            {/* Prioridade e Status */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Prioridade
+                </label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {Object.entries(TASK_PRIORITIES).map(([key, p]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setPriority(key)}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                        priority === key
+                          ? `${p.badge} ring-2 ring-emerald-400 font-semibold shadow-sm`
+                          : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${p.dot}`} />
+                      <span>{p.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Coluna / Status
+                </label>
+                <div className="flex flex-col gap-1.5">
+                  {TASK_COLUMNS.map(col => (
+                    <button
+                      key={col.id}
+                      type="button"
+                      onClick={() => setStatus(col.id)}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all text-left ${
+                        status === col.id
+                          ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 font-semibold'
+                          : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${col.dot}`} />
+                      <span>{col.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Checklist / Subtarefas */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Subtarefas / Checklist ({subtasks.filter(s => s.completed).length}/{subtasks.length})
+                </label>
+              </div>
+
+              <div className="flex gap-1.5 mb-2">
+                <input
+                  type="text"
+                  value={newSubtaskTitle}
+                  onChange={e => setNewSubtaskTitle(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddSubtask(); } }}
+                  placeholder="Nova etapa do checklist (pressione Enter)..."
+                  className="flex-1 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddSubtask}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 transition-colors"
+                >
+                  + Add
+                </button>
+              </div>
+
+              {subtasks.length > 0 && (
+                <div className="space-y-1.5 max-h-36 overflow-y-auto bg-slate-50 dark:bg-slate-900/50 p-2 rounded-xl border border-slate-200 dark:border-slate-700">
+                  {subtasks.map(sub => (
+                    <div key={sub.id} className="flex items-center justify-between gap-2 text-xs py-0.5 group">
+                      <label className="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={sub.completed}
+                          onChange={() => handleToggleSubtask(sub.id)}
+                          className="w-3.5 h-3.5 rounded text-emerald-500 focus:ring-emerald-400 border-slate-300 dark:border-slate-600 cursor-pointer"
+                        />
+                        <span className={`truncate ${sub.completed ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-700 dark:text-slate-300'}`}>
+                          {sub.title}
+                        </span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveSubtask(sub.id)}
+                        className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 transition-opacity p-0.5"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Tags */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Etiquetas / Tags
+              </label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {SUGGESTED_TASK_TAGS.map(t => {
+                  const isSelected = tags.includes(t);
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => isSelected ? handleRemoveTag(t) : handleAddTag(t)}
+                      className={`px-2 py-0.5 rounded-md text-[11px] font-medium border transition-all ${
+                        isSelected
+                          ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-emerald-400'
+                      }`}
+                    >
+                      {isSelected ? `✓ ${t}` : `+ ${t}`}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={tagInput}
+                  onChange={e => setTagInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddTag(); } }}
+                  placeholder="Criar outra tag personalizada..."
+                  className="flex-1 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleAddTag()}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 transition-colors"
+                >
+                  Adicionar
+                </button>
+              </div>
+
+              {tags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {tags.map(t => (
+                    <span key={t} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-medium">
+                      #{t}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveTag(t)}
+                        className="hover:text-red-500 transition-colors ml-0.5"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Ações do Modal */}
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+              >
+                {taskToEdit ? 'Salvar Alterações' : 'Criar Tarefa'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      );
+    }
+
+    // Card Individual de Tarefa (Usado no Kanban e na Lista)
+    function TaskCard({
+      task,
+      subject,
+      onEdit,
+      onDelete,
+      onToggleDone,
+      onMoveStatus,
+      onToggleSubtask,
+      onStartStudy,
+      isDraggable = true,
+      onDragStart,
+      viewMode = 'kanban'
+    }) {
+      const [showSubtasks, setShowSubtasks] = useState(false);
+      const isDone = task.status === 'done';
+      const priorityInfo = TASK_PRIORITIES[task.priority] || TASK_PRIORITIES.medium;
+      const dueDateInfo = formatTaskDueDate(task.dueDate);
+
+      const subtasks = task.subtasks || [];
+      const completedSubtasksCount = subtasks.filter(s => s.completed).length;
+      const subtasksProgress = subtasks.length > 0 ? Math.round((completedSubtasksCount / subtasks.length) * 100) : 0;
+
+      const subjectColorDef = subject ? SUBJECT_COLORS.find(c => c.id === subject.color) : null;
+
+      return (
+        <div
+          draggable={isDraggable}
+          onDragStart={e => onDragStart && onDragStart(e, task.id)}
+          className={`bg-white dark:bg-navy-800 rounded-2xl border transition-all duration-200 group relative ${
+            isDone
+              ? 'border-slate-200 dark:border-slate-800 opacity-80 hover:opacity-100'
+              : 'border-slate-200 dark:border-slate-700/70 hover:border-emerald-400 dark:hover:border-emerald-500 hover:shadow-md'
+          } ${viewMode === 'list' ? 'p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4' : 'p-4 flex flex-col gap-3'}`}
+        >
+          {/* Topo / Esquerda: Checkbox + Título + Badges */}
+          <div className={`flex items-start gap-3 ${viewMode === 'list' ? 'flex-1 min-w-0' : ''}`}>
+            <button
+              type="button"
+              onClick={() => onToggleDone(task.id)}
+              className={`mt-0.5 flex-shrink-0 w-5 h-5 rounded-lg border flex items-center justify-center transition-all ${
+                isDone
+                  ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm shadow-emerald-500/30'
+                  : 'border-slate-300 dark:border-slate-600 hover:border-emerald-500 hover:scale-105'
+              }`}
+              title={isDone ? 'Marcar como pendente' : 'Marcar como concluída'}
+            >
+              {isDone && (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              )}
+            </button>
+
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                {/* Prioridade */}
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${priorityInfo.badge}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${priorityInfo.dot}`} />
+                  {priorityInfo.label}
+                </span>
+
+                {/* Disciplina */}
+                {subject && (
+                  <span
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border"
+                    style={{
+                      backgroundColor: subjectColorDef ? `${subjectColorDef.bg}18` : '#10B98118',
+                      color: subjectColorDef ? subjectColorDef.bg : '#10B981',
+                      borderColor: subjectColorDef ? `${subjectColorDef.bg}40` : '#10B98140'
+                    }}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: subjectColorDef?.bg || '#10B981' }} />
+                    <span className="truncate max-w-[120px]">{subject.name}</span>
+                  </span>
+                )}
+
+                {/* Prazo */}
+                {dueDateInfo && (
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] ${dueDateInfo.className}`}>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                    </svg>
+                    {dueDateInfo.text}
+                  </span>
+                )}
+              </div>
+
+              {/* Título */}
+              <h4 className={`text-sm font-semibold tracking-tight transition-all ${
+                isDone ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-white'
+              }`}>
+                {task.title}
+              </h4>
+
+              {/* Descrição */}
+              {task.description && (
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                  {task.description}
+                </p>
+              )}
+
+              {/* Tags */}
+              {task.tags && task.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {task.tags.map(tag => (
+                    <span key={tag} className="text-[10px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/80 px-1.5 py-0.5 rounded">
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Subtarefas / Checklist Bar */}
+          {subtasks.length > 0 && (
+            <div className={`pt-2 border-t border-slate-100 dark:border-slate-800/80 ${viewMode === 'list' ? 'sm:w-48 sm:pt-0 sm:border-t-0' : ''}`}>
+              <button
+                type="button"
+                onClick={() => setShowSubtasks(v => !v)}
+                className="w-full flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 hover:text-emerald-500 dark:hover:text-emerald-400 transition-colors mb-1.5"
+              >
+                <span className="flex items-center gap-1.5 font-medium text-[11px]">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                  </svg>
+                  Checklist: {completedSubtasksCount}/{subtasks.length}
+                </span>
+                <span className="text-[10px] font-bold">{subtasksProgress}%</span>
+              </button>
+
+              {/* Barra de Progresso do Checklist */}
+              <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-700/60 rounded-full overflow-hidden mb-1">
+                <div
+                  className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                  style={{ width: `${subtasksProgress}%` }}
+                />
+              </div>
+
+              {/* Lista Aberta de Subtarefas */}
+              {showSubtasks && (
+                <div className="mt-2 space-y-1 bg-slate-50 dark:bg-slate-900/40 p-2 rounded-xl border border-slate-200/70 dark:border-slate-800">
+                  {subtasks.map(sub => (
+                    <label key={sub.id} className="flex items-center gap-2 text-xs cursor-pointer py-0.5">
+                      <input
+                        type="checkbox"
+                        checked={sub.completed}
+                        onChange={() => onToggleSubtask(task.id, sub.id)}
+                        className="w-3.5 h-3.5 rounded text-emerald-500 focus:ring-emerald-400 border-slate-300 dark:border-slate-600"
+                      />
+                      <span className={`text-[11px] truncate ${sub.completed ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-700 dark:text-slate-300'}`}>
+                        {sub.title}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Rodapé do Card: Ações Rápidas */}
+          <div className={`flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800/80 gap-2 ${viewMode === 'list' ? 'sm:pt-0 sm:border-t-0' : ''}`}>
+            {/* Botões para mover coluna rápida */}
+            <div className="flex items-center gap-1">
+              {task.status !== 'todo' && (
+                <button
+                  type="button"
+                  onClick={() => onMoveStatus(task.id, task.status === 'done' ? 'in_progress' : 'todo')}
+                  title="Recuar etapa"
+                  className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <polyline points="15 18 9 12 15 6"/>
+                  </svg>
+                </button>
+              )}
+
+              {task.status !== 'done' && (
+                <button
+                  type="button"
+                  onClick={() => onMoveStatus(task.id, task.status === 'todo' ? 'in_progress' : 'done')}
+                  title={task.status === 'todo' ? 'Mover para Em Andamento' : 'Concluir tarefa'}
+                  className="p-1 rounded-md text-slate-400 hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <polyline points="9 18 15 12 9 6"/>
+                  </svg>
+                </button>
+              )}
+
+              {/* Botão Estudar Esta Tarefa */}
+              {subject && onStartStudy && (
+                <button
+                  type="button"
+                  onClick={() => onStartStudy(subject.id)}
+                  title={`Iniciar sessão de estudo para ${subject.name}`}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                  </svg>
+                  Estudar
+                </button>
+              )}
+            </div>
+
+            {/* Ações: Editar e Excluir */}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => onEdit(task)}
+                title="Editar Tarefa"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-all"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onDelete(task.id)}
+                title="Excluir Tarefa"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-all"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // PÁGINA PRINCIPAL: TAREFAS
+    function TasksPage({ onNavigate }) {
+      const [tasks, setTasks] = useLocalStorage('studyflow-tasks', INITIAL_TASKS_DATA);
+      const [subjects] = useLocalStorage('studyflow-subjects', []);
+      const [viewMode, setViewMode] = useLocalStorage('studyflow-tasks-view', 'kanban');
+
+      const [search, setSearch] = useState('');
+      const [filterSubject, setFilterSubject] = useState('all');
+      const [filterPriority, setFilterPriority] = useState('all');
+      const [filterStatus, setFilterStatus] = useState('all');
+
+      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [editingTask, setEditingTask] = useState(null);
+
+      const [draggedTaskId, setDraggedTaskId] = useState(null);
+      const [dragOverColId, setDragOverColId] = useState(null);
+
+      // Métricas de Tarefas
+      const totalTasks = tasks.length;
+      const todoTasks = tasks.filter(t => t.status === 'todo').length;
+      const inProgressTasks = tasks.filter(t => t.status === 'in_progress').length;
+      const doneTasks = tasks.filter(t => t.status === 'done').length;
+      const completionRate = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+
+      const todayStr = new Date().toISOString().split('T')[0];
+      const overdueTasks = tasks.filter(t => t.status !== 'done' && t.dueDate && t.dueDate < todayStr).length;
+      const dueTodayTasks = tasks.filter(t => t.status !== 'done' && t.dueDate === todayStr).length;
+
+      // Filtragem
+      const filteredTasks = tasks.filter(task => {
+        // Busca textual
+        if (search) {
+          const s = search.toLowerCase();
+          const matchTitle = task.title.toLowerCase().includes(s);
+          const matchDesc = (task.description || '').toLowerCase().includes(s);
+          const matchTags = (task.tags || []).some(t => t.toLowerCase().includes(s));
+          if (!matchTitle && !matchDesc && !matchTags) return false;
+        }
+
+        // Filtro de Disciplina
+        if (filterSubject !== 'all') {
+          if (filterSubject === 'none' && task.subjectId !== null) return false;
+          if (filterSubject !== 'none' && task.subjectId !== filterSubject) return false;
+        }
+
+        // Filtro de Prioridade
+        if (filterPriority !== 'all' && task.priority !== filterPriority) {
+          return false;
+        }
+
+        // Filtro de Status / Prazo
+        if (filterStatus === 'todo' && task.status !== 'todo') return false;
+        if (filterStatus === 'in_progress' && task.status !== 'in_progress') return false;
+        if (filterStatus === 'done' && task.status !== 'done') return false;
+        if (filterStatus === 'overdue') {
+          if (task.status === 'done' || !task.dueDate || task.dueDate >= todayStr) return false;
+        }
+        if (filterStatus === 'today') {
+          if (task.status === 'done' || task.dueDate !== todayStr) return false;
+        }
+
+        return true;
+      });
+
+      // Operações de CRUD
+      function handleOpenCreateModal(defaultStatus = 'todo') {
+        setEditingTask({ status: defaultStatus });
+        setIsModalOpen(true);
+      }
+
+      function handleOpenEditModal(task) {
+        setEditingTask(task);
+        setIsModalOpen(true);
+      }
+
+      function handleCloseModal() {
+        setIsModalOpen(false);
+        setEditingTask(null);
+      }
+
+      function handleSaveTask(data) {
+        if (editingTask && editingTask.id) {
+          // Atualizar
+          setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, ...data } : t));
+        } else {
+          // Criar nova
+          const newTask = {
+            ...data,
+            id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            createdAt: new Date().toISOString(),
+          };
+          setTasks(prev => [newTask, ...prev]);
+        }
+      }
+
+      function handleDeleteTask(id) {
+        if (window.confirm('Tem certeza que deseja excluir esta tarefa?')) {
+          setTasks(prev => prev.filter(t => t.id !== id));
+        }
+      }
+
+      function handleToggleDone(id) {
+        setTasks(prev => prev.map(t => {
+          if (t.id !== id) return t;
+          const isDone = t.status === 'done';
+          const newStatus = isDone ? 'todo' : 'done';
+          return {
+            ...t,
+            status: newStatus,
+            completedAt: newStatus === 'done' ? new Date().toISOString() : null,
+            subtasks: t.subtasks ? t.subtasks.map(s => ({ ...s, completed: !isDone })) : []
+          };
+        }));
+      }
+
+      function handleMoveStatus(id, newStatus) {
+        setTasks(prev => prev.map(t => {
+          if (t.id !== id) return t;
+          return {
+            ...t,
+            status: newStatus,
+            completedAt: newStatus === 'done' ? new Date().toISOString() : null
+          };
+        }));
+      }
+
+      function handleToggleSubtask(taskId, subId) {
+        setTasks(prev => prev.map(t => {
+          if (t.id !== taskId) return t;
+          const updatedSubs = (t.subtasks || []).map(s => s.id === subId ? { ...s, completed: !s.completed } : s);
+          const allSubsCompleted = updatedSubs.length > 0 && updatedSubs.every(s => s.completed);
+          return {
+            ...t,
+            subtasks: updatedSubs,
+            status: allSubsCompleted ? 'done' : (t.status === 'done' ? 'in_progress' : t.status),
+            completedAt: allSubsCompleted ? (t.completedAt || new Date().toISOString()) : null
+          };
+        }));
+      }
+
+      function handleClearCompleted() {
+        if (window.confirm(`Deseja remover todas as ${doneTasks} tarefas concluídas?`)) {
+          setTasks(prev => prev.filter(t => t.status !== 'done'));
+        }
+      }
+
+      // Drag and Drop
+      function handleDragStart(e, taskId) {
+        setDraggedTaskId(taskId);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', taskId);
+      }
+
+      function handleDragOver(e, colId) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (dragOverColId !== colId) {
+          setDragOverColId(colId);
+        }
+      }
+
+      function handleDragLeave(e, colId) {
+        if (dragOverColId === colId) {
+          setDragOverColId(null);
+        }
+      }
+
+      function handleDrop(e, colId) {
+        e.preventDefault();
+        setDragOverColId(null);
+        const taskId = e.dataTransfer.getData('text/plain') || draggedTaskId;
+        if (taskId) {
+          handleMoveStatus(taskId, colId);
+        }
+        setDraggedTaskId(null);
+      }
+
+      function handleStartStudySession(subjectId) {
+        if (onNavigate) {
+          onNavigate('study');
+        }
+      }
+
+      return (
+        <div className="space-y-6 animate-fade-in">
+          {/* Cabeçalho do Módulo de Tarefas */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                <h1 className="text-2xl font-black tracking-tight text-slate-800 dark:text-white">
+                  Tarefas & Prazos
+                </h1>
+              </div>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                Acompanhe exercícios, leituras, trabalhos e entregas com quadro visual e lista.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2.5 flex-wrap">
+              {doneTasks > 0 && (
+                <button
+                  type="button"
+                  onClick={handleClearCompleted}
+                  className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                  title="Excluir todas as tarefas concluídas"
+                >
+                  Limpar Concluídas ({doneTasks})
+                </button>
+              )}
+
+              <button
+                id="btn-new-task"
+                type="button"
+                onClick={() => handleOpenCreateModal('todo')}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Nova Tarefa
+              </button>
+            </div>
+          </div>
+
+          {/* Cards de Métricas e Produtividade */}
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+            {/* Total */}
+            <div className="bg-white dark:bg-navy-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">
+                Total
+              </span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black text-slate-800 dark:text-white">{totalTasks}</span>
+                <span className="text-xs text-slate-400">tarefas</span>
+              </div>
+            </div>
+
+            {/* Pendentes */}
+            <div className="bg-white dark:bg-navy-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">
+                A Fazer
+              </span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black text-slate-700 dark:text-slate-300">{todoTasks}</span>
+                <span className="text-xs text-slate-400">pendentes</span>
+              </div>
+            </div>
+
+            {/* Em Andamento */}
+            <div className="bg-white dark:bg-navy-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm">
+              <span className="text-xs font-semibold text-blue-500 dark:text-blue-400 uppercase tracking-wider block mb-1">
+                Em Andamento
+              </span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black text-blue-600 dark:text-blue-400">{inProgressTasks}</span>
+                <span className="text-xs text-blue-500/70">em foco</span>
+              </div>
+            </div>
+
+            {/* Concluídas */}
+            <div className="bg-white dark:bg-navy-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm">
+              <span className="text-xs font-semibold text-emerald-500 uppercase tracking-wider block mb-1">
+                Concluídas
+              </span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black text-emerald-500">{doneTasks}</span>
+                <span className="text-xs font-bold text-emerald-600/80">({completionRate}%)</span>
+              </div>
+            </div>
+
+            {/* Atrasadas / Vencendo Hoje */}
+            <div className={`p-4 rounded-2xl border shadow-sm col-span-2 lg:col-span-1 ${
+              overdueTasks > 0
+                ? 'bg-rose-50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-800/60'
+                : dueTodayTasks > 0
+                  ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/60'
+                  : 'bg-white dark:bg-navy-800 border-slate-200 dark:border-slate-700/60'
+            }`}>
+              <span className={`text-xs font-semibold uppercase tracking-wider block mb-1 ${
+                overdueTasks > 0 ? 'text-rose-600 dark:text-rose-400' : dueTodayTasks > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'
+              }`}>
+                Prazos Críticos
+              </span>
+              <div className="flex items-baseline gap-2">
+                <span className={`text-2xl font-black ${
+                  overdueTasks > 0 ? 'text-rose-600 dark:text-rose-400' : dueTodayTasks > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-600 dark:text-slate-300'
+                }`}>
+                  {overdueTasks > 0 ? overdueTasks : dueTodayTasks}
+                </span>
+                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  {overdueTasks > 0 ? 'atrasadas' : dueTodayTasks > 0 ? 'vencem hoje' : 'em dia'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Barra de Filtros, Busca e Alternância de Visualização */}
+          <div className="bg-white dark:bg-navy-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm flex flex-col md:flex-row gap-3 items-center justify-between">
+            {/* Campo de Busca */}
+            <div className="relative w-full md:w-72">
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Buscar tarefa ou tag..."
+                className="w-full pl-9 pr-4 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition-all"
+              />
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            {/* Dropdowns de Filtro */}
+            <div className="flex items-center gap-2 flex-wrap w-full md:w-auto">
+              {/* Filtro por Disciplina */}
+              <select
+                value={filterSubject}
+                onChange={e => setFilterSubject(e.target.value)}
+                className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs bg-slate-50 dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer"
+              >
+                <option value="all">Todas as Disciplinas</option>
+                <option value="none">Sem disciplina vinculada</option>
+                {subjects.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+
+              {/* Filtro por Prioridade */}
+              <select
+                value={filterPriority}
+                onChange={e => setFilterPriority(e.target.value)}
+                className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs bg-slate-50 dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer"
+              >
+                <option value="all">Todas as Prioridades</option>
+                <option value="urgent">Urgente</option>
+                <option value="high">Alta</option>
+                <option value="medium">Média</option>
+                <option value="low">Baixa</option>
+              </select>
+
+              {/* Filtro por Prazo / Status */}
+              <select
+                value={filterStatus}
+                onChange={e => setFilterStatus(e.target.value)}
+                className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs bg-slate-50 dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer"
+              >
+                <option value="all">Todos os Status</option>
+                <option value="todo">A Fazer</option>
+                <option value="in_progress">Em Andamento</option>
+                <option value="done">Concluídas</option>
+                <option value="today">Vencem Hoje</option>
+                <option value="overdue">Atrasadas</option>
+              </select>
+
+              {/* Alternador de Visualização: Kanban vs Lista */}
+              <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 ml-auto">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('kanban')}
+                  title="Visualização em Quadro Kanban"
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    viewMode === 'kanban'
+                      ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="10" rx="1"/>
+                  </svg>
+                  Kanban
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setViewMode('list')}
+                  title="Visualização em Lista"
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    viewMode === 'list'
+                      ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+                    <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+                  </svg>
+                  Lista
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Conteúdo Principal: Kanban ou Lista */}
+          {filteredTasks.length === 0 ? (
+            <div className="bg-white dark:bg-navy-800 rounded-3xl border border-dashed border-slate-200 dark:border-slate-700/80 p-12 text-center flex flex-col items-center justify-center">
+              <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center mb-3">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                </svg>
+              </div>
+              <h3 className="text-base font-bold text-slate-800 dark:text-white">Nenhuma tarefa encontrada</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mt-1 mb-4">
+                {search || filterSubject !== 'all' || filterPriority !== 'all' || filterStatus !== 'all'
+                  ? 'Nenhuma tarefa corresponde aos filtros aplicados. Tente limpar a busca ou os filtros.'
+                  : 'Você ainda não possui tarefas cadastradas. Crie sua primeira tarefa para organizar seus estudos!'}
+              </p>
+              <button
+                type="button"
+                onClick={() => handleOpenCreateModal('todo')}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 transition-all"
+              >
+                + Criar Primeira Tarefa
+              </button>
+            </div>
+          ) : viewMode === 'kanban' ? (
+            /* QUADRO KANBAN (3 Colunas) */
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {TASK_COLUMNS.map(col => {
+                const colTasks = filteredTasks.filter(t => t.status === col.id);
+                const isDragOver = dragOverColId === col.id;
+
+                return (
+                  <div
+                    key={col.id}
+                    onDragOver={e => handleDragOver(e, col.id)}
+                    onDragLeave={e => handleDragLeave(e, col.id)}
+                    onDrop={e => handleDrop(e, col.id)}
+                    className={`flex flex-col bg-slate-100/60 dark:bg-slate-900/40 rounded-3xl p-4 border transition-all duration-200 ${
+                      isDragOver
+                        ? 'border-emerald-500 ring-2 ring-emerald-500/20 bg-emerald-500/5'
+                        : 'border-slate-200/80 dark:border-slate-800'
+                    }`}
+                  >
+                    {/* Cabeçalho da Coluna */}
+                    <div className="flex items-center justify-between mb-3.5 px-1">
+                      <div className="flex items-center gap-2">
+                        <span className={`p-1.5 rounded-lg border ${col.badge}`}>
+                          {col.icon}
+                        </span>
+                        <h3 className="text-sm font-bold text-slate-800 dark:text-white">
+                          {col.label}
+                        </h3>
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 shadow-sm border border-slate-200 dark:border-slate-700">
+                          {colTasks.length}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleOpenCreateModal(col.id)}
+                        className="p-1 rounded-lg text-slate-400 hover:text-emerald-500 hover:bg-white dark:hover:bg-slate-800 transition-all"
+                        title={`Adicionar tarefa em ${col.label}`}
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                        </svg>
+                      </button>
+                    </div>
+
+                    {/* Lista de Cards da Coluna */}
+                    <div className="flex-1 space-y-3 min-h-[140px]">
+                      {colTasks.map(task => (
+                        <TaskCard
+                          key={task.id}
+                          task={task}
+                          subject={subjects.find(s => s.id === task.subjectId)}
+                          onEdit={handleOpenEditModal}
+                          onDelete={handleDeleteTask}
+                          onToggleDone={handleToggleDone}
+                          onMoveStatus={handleMoveStatus}
+                          onToggleSubtask={handleToggleSubtask}
+                          onStartStudy={handleStartStudySession}
+                          onDragStart={handleDragStart}
+                          viewMode="kanban"
+                        />
+                      ))}
+
+                      {colTasks.length === 0 && (
+                        <div className="h-32 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col items-center justify-center text-slate-400 dark:text-slate-600 text-xs">
+                          <span>Nenhuma tarefa aqui</span>
+                          <span className="text-[10px] mt-0.5">Arraste uma tarefa para cá</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* VISÃO EM LISTA */
+            <div className="space-y-3">
+              {filteredTasks.map(task => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  subject={subjects.find(s => s.id === task.subjectId)}
+                  onEdit={handleOpenEditModal}
+                  onDelete={handleDeleteTask}
+                  onToggleDone={handleToggleDone}
+                  onMoveStatus={handleMoveStatus}
+                  onToggleSubtask={handleToggleSubtask}
+                  onStartStudy={handleStartStudySession}
+                  isDraggable={false}
+                  viewMode="list"
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Modal de Criar / Editar */}
+          <TaskFormModal
+            isOpen={isModalOpen}
+            onClose={handleCloseModal}
+            onSave={handleSaveTask}
+            taskToEdit={editingTask}
+            subjects={subjects}
+          />
+        </div>
+      );
+    }
+
+    // =============================================
     // COMPONENTES DE LAYOUT
     // =============================================
 
@@ -3587,7 +4849,7 @@
           <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-1">
             {NAV_ITEMS.map(item => {
               const isActive = activeNav === item.id;
-              const isComingSoon = !['subjects', 'study', 'notes', 'schedule', 'timer', 'progress'].includes(item.id);
+              const isComingSoon = !['subjects', 'study', 'notes', 'schedule', 'timer', 'progress', 'tasks'].includes(item.id);
               return (
                 <button
                   key={item.id}
@@ -3748,6 +5010,7 @@
           case 'schedule': return <SchedulePage />;
           case 'timer':    return <PomodoroPage />;
           case 'progress': return <ProgressPage />;
+          case 'tasks':    return <TasksPage onNavigate={setActiveNav} />;
           default:
             return (
               <div className="flex flex-col items-center justify-center py-24 text-center animate-fade-in">
