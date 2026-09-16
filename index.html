@@ -99,6 +99,21 @@
     .card-hover:hover {
       transform: translateY(-2px);
     }
+
+    /* Utilitários para Flashcards 3D Flip */
+    .perspective-1000 {
+      perspective: 1000px;
+    }
+    .transform-style-preserve-3d {
+      transform-style: preserve-3d;
+    }
+    .backface-hidden {
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+    }
+    .rotate-y-180 {
+      transform: rotateY(180deg);
+    }
   </style>
 </head>
 <body class="bg-slate-50 dark:bg-navy-900 min-h-screen">
@@ -2653,6 +2668,7 @@
       const [selectedSubject, setSelectedSubject] = useState('');
       const [mode, setMode] = useState('focus');
       const [status, setStatus] = useState('idle'); // 'idle' | 'running' | 'paused'
+      const [focusMinutes, setFocusMinutes] = useState(25);
       const [timeLeft, setTimeLeft] = useState(25 * 60);
       const [feedbackMsg, setFeedbackMsg] = useState(null);
 
@@ -2679,14 +2695,15 @@
           playPomodoroAlertSound(wasFocus);
 
           if (wasFocus) {
-            // Salva sessão de 25 min no histórico da disciplina selecionada
+            // Salva sessão com a duração real configurada no histórico da disciplina selecionada
+            const focusSeconds = focusMinutes * 60;
             if (selectedSubject) {
               const newSession = {
                 id: `sess-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
                 subjectId: selectedSubject,
-                durationSeconds: 25 * 60,
+                durationSeconds: focusSeconds,
                 date: new Date().toISOString(),
-                notes: '🍅 Ciclo Pomodoro concluído (25 min)',
+                notes: `🍅 Ciclo Pomodoro concluído (${focusMinutes} min)`,
               };
               setSessions(prev => [newSession, ...prev]);
             }
@@ -2700,8 +2717,8 @@
               type: 'success',
               title: '🎉 Ciclo de Foco Concluído!',
               desc: selectedSubject
-                ? `25 minutos registrados para "${activeSubject?.name}". Aproveite sua pausa!`
-                : '25 minutos concluídos com sucesso! Aproveite sua pausa.',
+                ? `${focusMinutes} minutos registrados para "${activeSubject?.name}". Aproveite sua pausa!`
+                : `${focusMinutes} minutos concluídos com sucesso! Aproveite sua pausa.`,
             });
             setMode(nextMode);
             setTimeLeft(POMODORO_CONFIGS[nextMode].totalSeconds);
@@ -2712,10 +2729,10 @@
               desc: 'Energias recarregadas. Pronto para o próximo ciclo de foco?',
             });
             setMode('focus');
-            setTimeLeft(POMODORO_CONFIGS.focus.totalSeconds);
+            setTimeLeft(focusMinutes * 60);
           }
         }
-      }, [mode, selectedSubject, activeSubject, todayCycles, todayStr, setSessions, setDailyCycles]);
+      }, [mode, focusMinutes, selectedSubject, activeSubject, todayCycles, todayStr, setSessions, setDailyCycles]);
 
       useEffect(() => {
         if (status !== 'running') return;
@@ -2743,7 +2760,19 @@
         endTimeRef.current = null;
         setStatus('idle');
         setMode(newMode);
-        setTimeLeft(POMODORO_CONFIGS[newMode].totalSeconds);
+        if (newMode === 'focus') {
+          setTimeLeft(focusMinutes * 60);
+        } else {
+          setTimeLeft(POMODORO_CONFIGS[newMode].totalSeconds);
+        }
+      }
+
+      function handleUpdateFocusMinutes(newMin) {
+        const clamped = Math.max(1, Math.min(180, Number(newMin) || 25));
+        setFocusMinutes(clamped);
+        if (mode === 'focus' && status === 'idle') {
+          setTimeLeft(clamped * 60);
+        }
       }
 
       function handleStart() {
@@ -2771,7 +2800,7 @@
       function handleReset() {
         endTimeRef.current = null;
         setStatus('idle');
-        setTimeLeft(currentConfig.totalSeconds);
+        setTimeLeft(mode === 'focus' ? focusMinutes * 60 : currentConfig.totalSeconds);
       }
 
       function handleSkip() {
@@ -2783,13 +2812,18 @@
           ? (todayCycles > 0 && todayCycles % 4 === 0 ? 'longBreak' : 'shortBreak')
           : 'focus';
         setMode(nextMode);
-        setTimeLeft(POMODORO_CONFIGS[nextMode].totalSeconds);
+        if (nextMode === 'focus') {
+          setTimeLeft(focusMinutes * 60);
+        } else {
+          setTimeLeft(POMODORO_CONFIGS[nextMode].totalSeconds);
+        }
       }
 
-      const totalSec = currentConfig.totalSeconds;
+      const totalSec = mode === 'focus' ? focusMinutes * 60 : currentConfig.totalSeconds;
       const progressPercent = Math.min(100, Math.max(0, Math.round(((totalSec - timeLeft) / totalSec) * 100)));
       const minutesDisplay = String(Math.floor(timeLeft / 60)).padStart(2, '0');
       const secondsDisplay = String(timeLeft % 60).padStart(2, '0');
+      const currentBadge = mode === 'focus' ? `🍅 Ciclo de Foco (${focusMinutes} min)` : currentConfig.badge;
 
       return (
         <div className="max-w-2xl mx-auto animate-fade-in">
@@ -2857,9 +2891,10 @@
 
             <div className="p-6 sm:p-8">
               {/* Seletor de Modo (Foco, Pausa Curta, Pausa Longa) */}
-              <div className="flex p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-900/80 mb-6 gap-1.5">
+              <div className="flex p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-900/80 mb-5 gap-1.5">
                 {Object.values(POMODORO_CONFIGS).map(cfg => {
                   const isSelected = mode === cfg.id;
+                  const labelMin = cfg.id === 'focus' ? focusMinutes : cfg.minutes;
                   return (
                     <button
                       key={cfg.id}
@@ -2873,11 +2908,65 @@
                     >
                       <span className="w-2 h-2 rounded-full" style={{ backgroundColor: cfg.color }} />
                       <span>{cfg.label}</span>
-                      <span className="text-[11px] opacity-60 font-normal">({cfg.minutes}m)</span>
+                      <span className="text-[11px] opacity-60 font-normal">({labelMin}m)</span>
                     </button>
                   );
                 })}
               </div>
+
+              {/* Seletor de Tempo de Foco Personalizado */}
+              {mode === 'focus' && (
+                <div className="mb-6 p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/80 animate-fade-in">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2.5">
+                    <label className="text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-500">
+                        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                      </svg>
+                      Duração Personalizada do Foco
+                    </label>
+                    <span className="text-xs text-slate-400">
+                      Ciclo configurado: <strong className="text-red-500 dark:text-red-400">{focusMinutes} minutos</strong>
+                    </span>
+                  </div>
+
+                  {/* Presets rápidos e campo numérico */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {[25, 40, 50, 60, 90].map(m => (
+                      <button
+                        key={m}
+                        type="button"
+                        disabled={status === 'running'}
+                        onClick={() => handleUpdateFocusMinutes(m)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          focusMinutes === m
+                            ? 'bg-red-500 text-white shadow-sm shadow-red-500/30 scale-105'
+                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-red-400'
+                        } ${status === 'running' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        {m}m
+                      </button>
+                    ))}
+
+                    {/* Input numérico livre */}
+                    <div className="flex items-center gap-1.5 ml-auto">
+                      <span className="text-xs text-slate-400 font-medium">Custom:</span>
+                      <div className="relative flex items-center">
+                        <input
+                          id="pomodoro-custom-minutes-input"
+                          type="number"
+                          min="1"
+                          max="180"
+                          disabled={status === 'running'}
+                          value={focusMinutes}
+                          onChange={e => handleUpdateFocusMinutes(e.target.value)}
+                          className="w-16 px-2 py-1 text-xs font-bold text-center rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-red-400"
+                        />
+                        <span className="text-[11px] text-slate-400 ml-1.5 font-medium">min</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Vínculo com Disciplina */}
               <div className="mb-6">
@@ -2919,7 +3008,7 @@
                 </div>
                 {mode === 'focus' && !selectedSubject && (
                   <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
-                    💡 Dica: Selecione uma disciplina para que os 25 minutos sejam computados automaticamente no seu progresso de estudos.
+                    💡 Dica: Selecione uma disciplina para que os {focusMinutes} minutos sejam computados automaticamente no seu progresso de estudos.
                   </p>
                 )}
               </div>
@@ -2928,7 +3017,7 @@
               <div className="flex flex-col items-center justify-center py-6">
                 <div className="mb-4 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-widest"
                   style={{ backgroundColor: currentConfig.accentBg, color: currentConfig.color }}>
-                  {currentConfig.badge}
+                  {currentBadge}
                 </div>
 
                 {/* Display Numérico */}
@@ -4754,6 +4843,1510 @@
     }
 
     // =============================================
+    // COMPONENTE: SIMULADOR DE IRA (IraSimulatorPage)
+    // =============================================
+
+    const SAMPLE_IRA_RECORDS = [
+      { id: 'ira-demo-1', semester: '2024.1', semesterWeight: 1, subjectName: 'Cálculo Diferencial e Integral I', hours: 60, grade: 8.5 },
+      { id: 'ira-demo-2', semester: '2024.1', semesterWeight: 1, subjectName: 'Algoritmos e Programação', hours: 60, grade: 9.0 },
+      { id: 'ira-demo-3', semester: '2024.1', semesterWeight: 1, subjectName: 'Metodologia Científica', hours: 30, grade: 9.5 },
+      { id: 'ira-demo-4', semester: '2024.2', semesterWeight: 2, subjectName: 'Cálculo II', hours: 60, grade: 7.5 },
+      { id: 'ira-demo-5', semester: '2024.2', semesterWeight: 2, subjectName: 'Estruturas de Dados', hours: 60, grade: 8.8 },
+      { id: 'ira-demo-6', semester: '2024.2', semesterWeight: 2, subjectName: 'Álgebra Linear', hours: 60, grade: 8.0 },
+      { id: 'ira-demo-7', semester: '2025.1', semesterWeight: 3, subjectName: 'Banco de Dados', hours: 60, grade: 9.2 },
+      { id: 'ira-demo-8', semester: '2025.1', semesterWeight: 3, subjectName: 'Redes de Computadores', hours: 60, grade: 8.4 },
+    ];
+
+    function IraSimulatorPage() {
+      const [records, setRecords] = useLocalStorage('studyflow-ira-records', []);
+      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [editingRecord, setEditingRecord] = useState(null);
+      const [filterSemester, setFilterSemester] = useState('all');
+      const [searchQuery, setSearchQuery] = useState('');
+      const [showFormulaHelp, setShowFormulaHelp] = useState(false);
+
+      // Form local state
+      const [formSemester, setFormSemester] = useState('2025.1');
+      const [formWeight, setFormWeight] = useState('1');
+      const [formSubjectName, setFormSubjectName] = useState('');
+      const [formHours, setFormHours] = useState('60');
+      const [formGrade, setFormGrade] = useState('');
+      const [formError, setFormError] = useState('');
+
+      function openCreateModal(defaultSemester) {
+        setEditingRecord(null);
+        setFormSemester(defaultSemester || (records.length > 0 ? records[records.length - 1].semester : '2025.1'));
+        setFormWeight(records.length > 0 ? String(records[records.length - 1].semesterWeight || 1) : '1');
+        setFormSubjectName('');
+        setFormHours('60');
+        setFormGrade('');
+        setFormError('');
+        setIsModalOpen(true);
+      }
+
+      function openEditModal(record) {
+        setEditingRecord(record);
+        setFormSemester(record.semester);
+        setFormWeight(String(record.semesterWeight || 1));
+        setFormSubjectName(record.subjectName);
+        setFormHours(String(record.hours));
+        setFormGrade(String(record.grade));
+        setFormError('');
+        setIsModalOpen(true);
+      }
+
+      function handleSaveRecord(e) {
+        e.preventDefault();
+        const sem = formSemester.trim();
+        const weight = parseFloat(formWeight);
+        const name = formSubjectName.trim();
+        const hours = parseFloat(formHours);
+        const grade = parseFloat(formGrade);
+
+        if (!sem) { setFormError('Informe o semestre.'); return; }
+        if (isNaN(weight) || weight <= 0) { setFormError('Peso do semestre inválido (deve ser > 0).'); return; }
+        if (!name) { setFormError('Informe o nome da disciplina.'); return; }
+        if (isNaN(hours) || hours <= 0) { setFormError('Informe uma carga horária válida em horas.'); return; }
+        if (isNaN(grade) || grade < 0 || grade > 10) { setFormError('A nota deve estar entre 0.0 e 10.0.'); return; }
+
+        if (editingRecord) {
+          setRecords(prev => prev.map(r => r.id === editingRecord.id ? {
+            ...r,
+            semester: sem,
+            semesterWeight: weight,
+            subjectName: name,
+            hours: hours,
+            grade: grade,
+          } : r));
+        } else {
+          const newRecord = {
+            id: `ira-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            semester: sem,
+            semesterWeight: weight,
+            subjectName: name,
+            hours: hours,
+            grade: grade,
+          };
+          setRecords(prev => [...prev, newRecord]);
+        }
+        setIsModalOpen(false);
+      }
+
+      function handleDeleteRecord(id) {
+        if (window.confirm('Tem certeza de que deseja remover esta disciplina do cálculo do IRA?')) {
+          setRecords(prev => prev.filter(r => r.id !== id));
+        }
+      }
+
+      function handleLoadSamples() {
+        if (records.length > 0 && !window.confirm('Deseja adicionar os registros de demonstração aos existentes?')) {
+          return;
+        }
+        setRecords(prev => [...prev, ...SAMPLE_IRA_RECORDS]);
+      }
+
+      function handleClearAll() {
+        if (window.confirm('Deseja realmente apagar todos os registros do simulador de IRA?')) {
+          setRecords([]);
+        }
+      }
+
+      // Cálculos Matemáticos Gerais
+      const totalPoints = records.reduce((acc, r) => acc + (Number(r.semesterWeight || 1) * Number(r.hours || 0) * Number(r.grade || 0)), 0);
+      const totalDivisor = records.reduce((acc, r) => acc + (Number(r.semesterWeight || 1) * Number(r.hours || 0)), 0);
+      const totalHours = records.reduce((acc, r) => acc + Number(r.hours || 0), 0);
+      const overallIra = totalDivisor > 0 ? (totalPoints / totalDivisor) : 0;
+
+      // Classificação do IRA
+      function getIraClassification(ira) {
+        if (ira >= 8.5) return { label: 'Excelente', color: 'text-emerald-500', bg: 'bg-emerald-500/10 border-emerald-500/30' };
+        if (ira >= 7.0) return { label: 'Muito Bom', color: 'text-blue-500', bg: 'bg-blue-500/10 border-blue-500/30' };
+        if (ira >= 5.0) return { label: 'Regular', color: 'text-amber-500', bg: 'bg-amber-500/10 border-amber-500/30' };
+        return { label: 'Em Alerta', color: 'text-rose-500', bg: 'bg-rose-500/10 border-rose-500/30' };
+      }
+      const overallClass = getIraClassification(overallIra);
+
+      // Semestres únicos ordenados
+      const availableSemesters = Array.from(new Set(records.map(r => r.semester))).sort();
+
+      // Registros filtrados por busca e semestre
+      const displayedSemesters = filterSemester === 'all'
+        ? availableSemesters
+        : availableSemesters.filter(s => s === filterSemester);
+
+      return (
+        <div className="max-w-6xl mx-auto space-y-6 animate-fade-in">
+          {/* Topo / Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2.5">
+                <span className="p-2 rounded-xl bg-blue-500/10 text-blue-500">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
+                    <path d="M6 6h10"/><path d="M6 10h10"/><path d="m9 16 2 2 4-4"/>
+                  </svg>
+                </span>
+                Simulador de IRA
+              </h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                Índice de Rendimento Acadêmico calculado conforme a fórmula oficial das universidades.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => setShowFormulaHelp(v => !v)}
+                className="px-3 py-2 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-all flex items-center gap-1.5 cursor-pointer"
+                title="Ver fórmula matemática do IRA"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                </svg>
+                Como funciona
+              </button>
+
+              {records.length === 0 ? (
+                <button
+                  onClick={handleLoadSamples}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  Carregar Exemplos
+                </button>
+              ) : (
+                <button
+                  onClick={handleClearAll}
+                  className="px-3 py-2 rounded-xl text-xs font-semibold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all cursor-pointer"
+                  title="Zerar registros do IRA"
+                >
+                  Limpar
+                </button>
+              )}
+
+              <button
+                id="btn-add-ira-subject"
+                onClick={() => openCreateModal()}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Adicionar Disciplina
+              </button>
+            </div>
+          </div>
+
+          {/* Banner explicativo retrátil da fórmula */}
+          {showFormulaHelp && (
+            <div className="p-5 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border border-blue-200/80 dark:border-blue-800/60 animate-slide-up text-sm">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-2">
+                  <h3 className="font-bold text-blue-900 dark:text-blue-200 flex items-center gap-2">
+                    <span>📐</span> Metodologia de Cálculo do IRA
+                  </h3>
+                  <p className="text-blue-800/90 dark:text-blue-300 text-xs leading-relaxed">
+                    O <strong>Índice de Rendimento Acadêmico (IRA)</strong> pondera a nota de cada disciplina pela sua <strong>Carga Horária (Ci)</strong> e pelo <strong>Peso do Semestre (Pi)</strong>:
+                  </p>
+                  <div className="inline-block p-3 rounded-xl bg-white dark:bg-slate-900/80 border border-blue-200 dark:border-blue-800/80 font-mono text-xs text-blue-700 dark:text-blue-300">
+                    IRA = Σ ( Peso × Carga Horária × Nota ) ÷ Σ ( Peso × Carga Horária )
+                  </div>
+                  <ul className="text-xs text-blue-800/80 dark:text-blue-400 list-disc list-inside space-y-1">
+                    <li><strong>Pontos da Disciplina:</strong> Pi × Ci × Ni</li>
+                    <li><strong>Divisor da Disciplina:</strong> Pi × Ci</li>
+                    <li><strong>Peso (Pi):</strong> Normalmente varia de 1 a 6 conforme a progressão curricular, ou peso padrão 1 para ponderação exclusivamente por carga horária.</li>
+                  </ul>
+                </div>
+                <button
+                  onClick={() => setShowFormulaHelp(false)}
+                  className="text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 text-xs font-bold px-2 py-1 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Cards de Métricas e Destaque */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Card 1: IRA Geral Acumulado */}
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm relative overflow-hidden">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  IRA Geral Acumulado
+                </span>
+                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${overallClass.bg} ${overallClass.color}`}>
+                  {overallClass.label}
+                </span>
+              </div>
+              <div className="mt-3 flex items-baseline gap-2">
+                <span className="text-4xl font-black text-slate-800 dark:text-white tracking-tight">
+                  {overallIra.toFixed(2)}
+                </span>
+                <span className="text-xs text-slate-400 font-semibold">/ 10.00</span>
+              </div>
+              <div className="mt-3 h-2 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-700 bg-blue-600"
+                  style={{ width: `${Math.min(100, Math.max(0, (overallIra / 10) * 100))}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Card 2: Carga Horária Total */}
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                Horas Integralizadas
+              </span>
+              <div className="mt-3 flex items-baseline gap-2">
+                <span className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">
+                  {totalHours}h
+                </span>
+                <span className="text-xs text-slate-400">
+                  em {records.length} {records.length === 1 ? 'disciplina' : 'disciplinas'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-3 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"/>
+                Divisor Total Acumulado: <strong>{totalDivisor.toFixed(0)}</strong>
+              </p>
+            </div>
+
+            {/* Card 3: Total de Pontos */}
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                Pontuação Total
+              </span>
+              <div className="mt-3 flex items-baseline gap-2">
+                <span className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">
+                  {totalPoints.toFixed(1)}
+                </span>
+                <span className="text-xs text-slate-400">pontos</span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-3 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block"/>
+                Σ (Peso × Carga × Nota)
+              </p>
+            </div>
+
+            {/* Card 4: Semestres Cursados */}
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                Semestres Registrados
+              </span>
+              <div className="mt-3 flex items-baseline gap-2">
+                <span className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">
+                  {availableSemesters.length}
+                </span>
+                <span className="text-xs text-slate-400">semestres</span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-3 flex items-center gap-1">
+                {availableSemesters.length > 0 ? (
+                  <>De <strong>{availableSemesters[0]}</strong> a <strong>{availableSemesters[availableSemesters.length - 1]}</strong></>
+                ) : (
+                  'Nenhum semestre cadastrado'
+                )}
+              </p>
+            </div>
+          </div>
+
+          {/* Filtros e Busca */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Semestre:</span>
+              <select
+                value={filterSemester}
+                onChange={e => setFilterSemester(e.target.value)}
+                className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+              >
+                <option value="all">Todos os Semestres ({records.length})</option>
+                {availableSemesters.map(s => {
+                  const count = records.filter(r => r.semester === s).length;
+                  return (
+                    <option key={s} value={s}>{s} ({count} mat.)</option>
+                  );
+                })}
+              </select>
+            </div>
+
+            <div className="relative w-full sm:w-64">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Buscar disciplina..."
+                className="w-full pl-9 pr-4 py-1.5 rounded-xl text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+              </span>
+            </div>
+          </div>
+
+          {/* Listagem de Disciplinas Agrupadas por Semestre */}
+          {records.length === 0 ? (
+            <div className="py-16 text-center rounded-3xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-blue-50 dark:bg-blue-900/30 text-blue-500 flex items-center justify-center">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
+                  <path d="M6 6h10"/><path d="M6 10h10"/>
+                </svg>
+              </div>
+              <h3 className="text-base font-bold text-slate-800 dark:text-white mb-1">
+                Nenhuma disciplina cadastrada no simulador
+              </h3>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto mb-6">
+                Cadastre suas matérias por semestre informando carga horária e nota, ou carregue um exemplo realista com 1 clique.
+              </p>
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  onClick={handleLoadSamples}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 transition-all cursor-pointer"
+                >
+                  Carregar Exemplo Realista
+                </button>
+                <button
+                  onClick={() => openCreateModal()}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/30 transition-all cursor-pointer"
+                >
+                  Adicionar Primeira Disciplina
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {displayedSemesters.map(semesterName => {
+                let semRecords = records.filter(r => r.semester === semesterName);
+                if (searchQuery.trim()) {
+                  semRecords = semRecords.filter(r => r.subjectName.toLowerCase().includes(searchQuery.toLowerCase()));
+                }
+                if (semRecords.length === 0 && searchQuery.trim()) return null;
+
+                const semPoints = semRecords.reduce((acc, r) => acc + (Number(r.semesterWeight || 1) * Number(r.hours || 0) * Number(r.grade || 0)), 0);
+                const semDivisor = semRecords.reduce((acc, r) => acc + (Number(r.semesterWeight || 1) * Number(r.hours || 0)), 0);
+                const semHours = semRecords.reduce((acc, r) => acc + Number(r.hours || 0), 0);
+                const semIra = semDivisor > 0 ? (semPoints / semDivisor) : 0;
+                const semClass = getIraClassification(semIra);
+
+                return (
+                  <div key={semesterName} className="rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden animate-fade-in">
+                    {/* Cabeçalho do Semestre */}
+                    <div className="p-4 sm:p-5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="px-3 py-1.5 rounded-xl bg-blue-600 text-white font-black text-sm tracking-tight shadow-sm">
+                          {semesterName}
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                            {semRecords.length} {semRecords.length === 1 ? 'disciplina' : 'disciplinas'} · {semHours}h
+                          </span>
+                          <span className="text-[11px] text-slate-400 block sm:inline sm:ml-2">
+                            (Peso do Semestre: {semRecords[0]?.semesterWeight || 1})
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        {/* IRA Semestral em destaque */}
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                          <span className="text-[11px] uppercase font-bold text-slate-400">IRA Semestral:</span>
+                          <span className={`text-base font-black ${semClass.color}`}>
+                            {semIra.toFixed(2)}
+                          </span>
+                        </div>
+
+                        <button
+                          onClick={() => openCreateModal(semesterName)}
+                          className="px-3 py-1.5 rounded-xl text-xs font-bold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-all flex items-center gap-1 cursor-pointer"
+                          title={`Adicionar disciplina no semestre ${semesterName}`}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                          </svg>
+                          + Matéria
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Tabela de Matérias */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="border-b border-slate-100 dark:border-slate-700/60 text-slate-400 uppercase font-bold text-[10px] tracking-wider">
+                            <th className="py-3 px-4 sm:px-6">Disciplina</th>
+                            <th className="py-3 px-3 text-center">Carga (Ci)</th>
+                            <th className="py-3 px-3 text-center">Peso (Pi)</th>
+                            <th className="py-3 px-3 text-center">Nota (Ni)</th>
+                            <th className="py-3 px-3 text-right">Pontos (Pi × Ci × Ni)</th>
+                            <th className="py-3 px-3 text-right">Divisor (Pi × Ci)</th>
+                            <th className="py-3 px-4 text-center">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-700/40 font-medium">
+                          {semRecords.map(r => {
+                            const pts = (Number(r.semesterWeight || 1) * Number(r.hours || 0) * Number(r.grade || 0));
+                            const div = (Number(r.semesterWeight || 1) * Number(r.hours || 0));
+                            const isPass = Number(r.grade) >= 5.0;
+
+                            return (
+                              <tr key={r.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/20 transition-colors">
+                                <td className="py-3.5 px-4 sm:px-6 font-semibold text-slate-800 dark:text-slate-100">
+                                  {r.subjectName}
+                                </td>
+                                <td className="py-3.5 px-3 text-center text-slate-600 dark:text-slate-300">
+                                  {r.hours}h
+                                </td>
+                                <td className="py-3.5 px-3 text-center text-slate-600 dark:text-slate-300">
+                                  {r.semesterWeight || 1}
+                                </td>
+                                <td className="py-3.5 px-3 text-center">
+                                  <span className={`inline-block px-2 py-0.5 rounded-lg font-bold ${
+                                    Number(r.grade) >= 7.0
+                                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'
+                                      : isPass
+                                        ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400'
+                                        : 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400'
+                                  }`}>
+                                    {Number(r.grade).toFixed(1)}
+                                  </span>
+                                </td>
+                                <td className="py-3.5 px-3 text-right font-mono font-bold text-slate-700 dark:text-slate-200">
+                                  {pts.toFixed(1)}
+                                </td>
+                                <td className="py-3.5 px-3 text-right font-mono text-slate-500 dark:text-slate-400">
+                                  {div.toFixed(0)}
+                                </td>
+                                <td className="py-3.5 px-4 text-center">
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <button
+                                      onClick={() => openEditModal(r)}
+                                      className="p-1.5 rounded-lg text-slate-400 hover:text-blue-500 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all cursor-pointer"
+                                      title="Editar disciplina"
+                                    >
+                                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                                      </svg>
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteRecord(r.id)}
+                                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all cursor-pointer"
+                                      title="Excluir disciplina"
+                                    >
+                                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                                      </svg>
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-slate-50/60 dark:bg-slate-900/40 text-[11px] font-bold border-t border-slate-200 dark:border-slate-700">
+                            <td className="py-3 px-4 sm:px-6 text-slate-500">
+                              Subtotal do Semestre ({semesterName})
+                            </td>
+                            <td className="py-3 px-3 text-center text-slate-700 dark:text-slate-200">
+                              {semHours}h
+                            </td>
+                            <td className="py-3 px-3 text-center text-slate-400">—</td>
+                            <td className="py-3 px-3 text-center">
+                              <span className={`font-black ${semClass.color}`}>IRA: {semIra.toFixed(2)}</span>
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono text-blue-600 dark:text-blue-400">
+                              {semPoints.toFixed(1)}
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono text-slate-600 dark:text-slate-300">
+                              {semDivisor.toFixed(0)}
+                            </td>
+                            <td className="py-3 px-4"/>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Modal de Criação / Edição de Disciplina do IRA */}
+          <Modal
+            isOpen={isModalOpen}
+            onClose={() => setIsModalOpen(false)}
+            title={editingRecord ? 'Editar Disciplina do IRA' : 'Adicionar Disciplina ao IRA'}
+          >
+            <form onSubmit={handleSaveRecord} className="p-6 space-y-4">
+              {formError && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-600 dark:text-rose-400 font-semibold">
+                  {formError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    Semestre <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="ex: 2025.1"
+                    value={formSemester}
+                    onChange={e => setFormSemester(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl text-xs font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">ex: 2024.2, 2025.1</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    Peso do Semestre (Pi) <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    min="1"
+                    max="20"
+                    required
+                    value={formWeight}
+                    onChange={e => setFormWeight(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl text-xs font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">Padrão: 1 (ou 1, 2, 3...)</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  Nome da Disciplina <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="ex: Cálculo Diferencial e Integral I"
+                  value={formSubjectName}
+                  onChange={e => setFormSubjectName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-xs font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    Carga Horária (Ci) <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative flex items-center">
+                    <input
+                      type="number"
+                      step="1"
+                      min="1"
+                      max="1000"
+                      required
+                      placeholder="60"
+                      value={formHours}
+                      onChange={e => setFormHours(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl text-xs font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <span className="absolute right-3 text-xs text-slate-400 pointer-events-none">h</span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">ex: 30, 60, 90 horas</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    Nota Final (Ni) <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="10"
+                    required
+                    placeholder="0.0 a 10.0"
+                    value={formGrade}
+                    onChange={e => setFormGrade(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl text-xs font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">Escala de 0.0 a 10.0</span>
+                </div>
+              </div>
+
+              {/* Cálculo em tempo real */}
+              {formHours && formGrade && !isNaN(parseFloat(formHours)) && !isNaN(parseFloat(formGrade)) && (
+                <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-xs">
+                  <div className="flex items-center justify-between text-blue-800 dark:text-blue-300 font-semibold">
+                    <span>Pontos (Pi × Ci × Ni):</span>
+                    <strong className="font-mono">{((parseFloat(formWeight) || 1) * parseFloat(formHours) * parseFloat(formGrade)).toFixed(1)}</strong>
+                  </div>
+                  <div className="flex items-center justify-between text-blue-700/80 dark:text-blue-400 text-[11px] mt-1">
+                    <span>Divisor (Pi × Ci):</span>
+                    <strong className="font-mono">{((parseFloat(formWeight) || 1) * parseFloat(formHours)).toFixed(0)}</strong>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/30 transition-all cursor-pointer"
+                >
+                  {editingRecord ? 'Salvar Alterações' : 'Adicionar ao IRA'}
+                </button>
+              </div>
+            </form>
+          </Modal>
+        </div>
+      );
+    }
+
+    // =============================================
+    // COMPONENTE: FLASHCARDS (Active Recall & Repetição Espaçada)
+    // =============================================
+
+    const SAMPLE_FLASHCARDS = [
+      {
+        id: 'fc-demo-1',
+        subjectId: 'general',
+        front: 'O que é Repetição Espaçada (Spaced Repetition)?',
+        back: 'É uma técnica de estudo baseada na Curva do Esquecimento de Ebbinghaus, onde as revisões são distribuídas em intervalos crescentes para consolidar a informação na memória de longo prazo.',
+        hint: 'Evita a perda gradual da memória com revisões nos momentos estratégicos.',
+        repetition: 2,
+        intervalDays: 4,
+        nextReviewDate: new Date().toISOString().slice(0, 10),
+      },
+      {
+        id: 'fc-demo-2',
+        subjectId: 'general',
+        front: 'Qual é a diferença entre Active Recall e Reconhecimento Passivo?',
+        back: 'O Active Recall exige que o cérebro recupere o conteúdo ativamente (fechar o livro e responder). O Reconhecimento Passivo apenas relê ou grifa, criando uma falsa sensação de domínio sem retenção real.',
+        hint: 'Um exercita o resgate ativo; o outro é apenas leitura passiva.',
+        repetition: 1,
+        intervalDays: 2,
+        nextReviewDate: new Date().toISOString().slice(0, 10),
+      },
+      {
+        id: 'fc-demo-3',
+        subjectId: 'general',
+        front: 'O que é a Técnica Feynman de estudo?',
+        back: 'É um método de 4 etapas: (1) Escolha o conceito, (2) Explique-o para uma criança ou leigo em linguagem simples, (3) Identifique lacunas e travas na sua explicação, (4) Revise a fonte e simplifique ainda mais.',
+        hint: 'Se você não consegue explicar de forma simples, você não entendeu o bastante.',
+        repetition: 0,
+        intervalDays: 1,
+        nextReviewDate: new Date().toISOString().slice(0, 10),
+      },
+      {
+        id: 'fc-demo-4',
+        subjectId: 'general',
+        front: 'O que diz o Princípio de Pareto (Regra 80/20) na preparação acadêmica?',
+        back: 'Geralmente 80% das questões de provas e do domínio prático advêm de 20% dos tópicos basilares da matéria. Priorize identificar e dominar essa base fundamental antes dos detalhes marginais.',
+        hint: 'Foco no essencial de maior impacto.',
+        repetition: 3,
+        intervalDays: 7,
+        nextReviewDate: new Date().toISOString().slice(0, 10),
+      }
+    ];
+
+    function FlashcardsPage() {
+      const [cards, setCards] = useLocalStorage('studyflow-flashcards', []);
+      const [subjects] = useLocalStorage('studyflow-subjects', []);
+
+      // Modo de Estudo / Revisão
+      const [isStudying, setIsStudying] = useState(false);
+      const [studyQueue, setStudyQueue] = useState([]);
+      const [currentIndex, setCurrentIndex] = useState(0);
+      const [isFlipped, setIsFlipped] = useState(false);
+      const [showHint, setShowHint] = useState(false);
+      const [sessionStats, setSessionStats] = useState({ answered: 0, easy: 0, good: 0, failed: 0 });
+      const [isFinished, setIsFinished] = useState(false);
+
+      // Modal de Criação / Edição
+      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [editingCard, setEditingCard] = useState(null);
+      const [filterSubject, setFilterSubject] = useState('all');
+      const [searchQuery, setSearchQuery] = useState('');
+
+      // Form state
+      const [formSubjectId, setFormSubjectId] = useState('general');
+      const [formFront, setFormFront] = useState('');
+      const [formBack, setFormBack] = useState('');
+      const [formHint, setFormHint] = useState('');
+      const [formError, setFormError] = useState('');
+
+      const todayStr = new Date().toISOString().slice(0, 10);
+
+      // Cartões pendentes para hoje
+      const dueCards = cards.filter(c => !c.nextReviewDate || c.nextReviewDate <= todayStr);
+      const masteredCards = cards.filter(c => (c.intervalDays || 1) >= 7);
+
+      // Iniciar Modo de Estudo
+      function handleStartReview(onlyDue = true) {
+        const queue = onlyDue
+          ? dueCards
+          : cards;
+
+        if (queue.length === 0) {
+          alert('Não há flashcards para revisar no momento!');
+          return;
+        }
+
+        // Embaralha levemente para melhor retenção
+        const shuffled = [...queue].sort(() => Math.random() - 0.5);
+        setStudyQueue(shuffled);
+        setCurrentIndex(0);
+        setIsFlipped(false);
+        setShowHint(false);
+        setSessionStats({ answered: 0, easy: 0, good: 0, failed: 0 });
+        setIsFinished(false);
+        setIsStudying(true);
+      }
+
+      // Atalho de teclado para virar carta (Barra de Espaço)
+      useEffect(() => {
+        if (!isStudying || isFinished) return;
+
+        function handleKeyDown(e) {
+          if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+          if (e.code === 'Space') {
+            e.preventDefault();
+            setIsFlipped(v => !v);
+          } else if (isFlipped) {
+            if (e.key === '1') handleRateCard('failed');
+            else if (e.key === '2') handleRateCard('good');
+            else if (e.key === '3') handleRateCard('easy');
+          }
+        }
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+      }, [isStudying, isFinished, isFlipped, currentIndex, studyQueue]);
+
+      // Avaliação com 3 botões (Errei, Bom, Fácil)
+      function handleRateCard(rating) {
+        const currentCard = studyQueue[currentIndex];
+        if (!currentCard) return;
+
+        let newRepetition = currentCard.repetition || 0;
+        let newInterval = currentCard.intervalDays || 1;
+
+        if (rating === 'failed') {
+          newRepetition = 0;
+          newInterval = 1;
+        } else if (rating === 'good') {
+          newRepetition += 1;
+          newInterval = newRepetition <= 1 ? 3 : Math.round(newInterval * 1.8);
+        } else if (rating === 'easy') {
+          newRepetition += 2;
+          newInterval = newRepetition <= 1 ? 6 : Math.round(newInterval * 2.5);
+        }
+
+        // Próxima data de revisão
+        const nextDate = new Date();
+        nextDate.setDate(nextDate.getDate() + newInterval);
+        const nextDateStr = nextDate.toISOString().slice(0, 10);
+
+        // Atualiza no banco geral
+        setCards(prev => prev.map(c => c.id === currentCard.id ? {
+          ...c,
+          repetition: newRepetition,
+          intervalDays: newInterval,
+          nextReviewDate: nextDateStr,
+          lastReviewedDate: todayStr,
+        } : c));
+
+        // Atualiza estatísticas da sessão
+        setSessionStats(prev => ({
+          ...prev,
+          answered: prev.answered + 1,
+          failed: rating === 'failed' ? prev.failed + 1 : prev.failed,
+          good: rating === 'good' ? prev.good + 1 : prev.good,
+          easy: rating === 'easy' ? prev.easy + 1 : prev.easy,
+        }));
+
+        // Avança para o próximo card ou finaliza
+        if (currentIndex + 1 < studyQueue.length) {
+          setIsFlipped(false);
+          setShowHint(false);
+          setCurrentIndex(idx => idx + 1);
+        } else {
+          setIsFinished(true);
+        }
+      }
+
+      // Abertura de Modal
+      function openCreateModal() {
+        setEditingCard(null);
+        setFormSubjectId(subjects.length > 0 ? subjects[0].id : 'general');
+        setFormFront('');
+        setFormBack('');
+        setFormHint('');
+        setFormError('');
+        setIsModalOpen(true);
+      }
+
+      function openEditModal(card) {
+        setEditingCard(card);
+        setFormSubjectId(card.subjectId || 'general');
+        setFormFront(card.front);
+        setFormBack(card.back);
+        setFormHint(card.hint || '');
+        setFormError('');
+        setIsModalOpen(true);
+      }
+
+      function handleSaveCard(e) {
+        e.preventDefault();
+        const front = formFront.trim();
+        const back = formBack.trim();
+
+        if (!front) { setFormError('Informe a pergunta ou frente do cartão.'); return; }
+        if (!back) { setFormError('Informe a resposta ou verso do cartão.'); return; }
+
+        if (editingCard) {
+          setCards(prev => prev.map(c => c.id === editingCard.id ? {
+            ...c,
+            subjectId: formSubjectId,
+            front,
+            back,
+            hint: formHint.trim(),
+          } : c));
+        } else {
+          const newCard = {
+            id: `fc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            subjectId: formSubjectId,
+            front,
+            back,
+            hint: formHint.trim(),
+            repetition: 0,
+            intervalDays: 1,
+            nextReviewDate: todayStr,
+            lastReviewedDate: null,
+          };
+          setCards(prev => [newCard, ...prev]);
+        }
+        setIsModalOpen(false);
+      }
+
+      function handleDeleteCard(id) {
+        if (window.confirm('Deseja excluir este flashcard?')) {
+          setCards(prev => prev.filter(c => c.id !== id));
+        }
+      }
+
+      function handleLoadSamples() {
+        if (cards.length > 0 && !window.confirm('Deseja adicionar os flashcards de demonstração aos existentes?')) {
+          return;
+        }
+        setCards(prev => [...prev, ...SAMPLE_FLASHCARDS]);
+      }
+
+      function getSubjectBadge(subjId) {
+        if (subjId === 'general') {
+          return { name: 'Conhecimento Geral', color: '#64748B' };
+        }
+        const s = subjects.find(item => item.id === subjId);
+        if (!s) return { name: 'Geral', color: '#64748B' };
+        const colorDef = SUBJECT_COLORS.find(c => c.id === s.color) || SUBJECT_COLORS[0];
+        return { name: s.name, color: colorDef.bg };
+      }
+
+      // Filtragem para listagem
+      let filteredCards = cards;
+      if (filterSubject !== 'all') {
+        filteredCards = filteredCards.filter(c => c.subjectId === filterSubject);
+      }
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        filteredCards = filteredCards.filter(c => c.front.toLowerCase().includes(q) || c.back.toLowerCase().includes(q));
+      }
+
+      // =============================================
+      // RENDERIZAÇÃO: MODO DE ESTUDO (ACTIVE RECALL)
+      // =============================================
+      if (isStudying) {
+        const currentCard = studyQueue[currentIndex];
+        const progressPercent = Math.round(((currentIndex) / studyQueue.length) * 100);
+        const subjBadge = currentCard ? getSubjectBadge(currentCard.subjectId) : { name: 'Geral', color: '#64748B' };
+
+        return (
+          <div className="max-w-3xl mx-auto py-4 sm:py-8 space-y-6 animate-fade-in">
+            {/* Topbar da Sessão */}
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => setIsStudying(false)}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white px-3 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+                </svg>
+                Sair da Revisão
+              </button>
+
+              {!isFinished && (
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                    Cartão {currentIndex + 1} de {studyQueue.length}
+                  </span>
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                    {progressPercent}%
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Barra de Progresso da Sessão */}
+            {!isFinished && (
+              <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 transition-all duration-300"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+            )}
+
+            {/* Tela de Parabéns / Finalização */}
+            {isFinished ? (
+              <div className="p-8 sm:p-12 text-center rounded-3xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xl animate-scale-in">
+                <div className="w-20 h-20 mx-auto mb-4 rounded-3xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-500 flex items-center justify-center text-4xl shadow-lg shadow-emerald-500/20">
+                  🎉
+                </div>
+                <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-2">
+                  Sessão de Revisão Concluída!
+                </h2>
+                <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto mb-8">
+                  Você revisou com sucesso todos os {studyQueue.length} cartões programados para esta sessão.
+                </p>
+
+                {/* Resumo de Desempenho */}
+                <div className="grid grid-cols-3 gap-3 max-w-md mx-auto mb-8">
+                  <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-center">
+                    <span className="text-2xl font-black text-rose-500">{sessionStats.failed}</span>
+                    <p className="text-[11px] font-bold text-rose-700 dark:text-rose-400 uppercase mt-1">Errei</p>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-center">
+                    <span className="text-2xl font-black text-amber-500">{sessionStats.good}</span>
+                    <p className="text-[11px] font-bold text-amber-700 dark:text-amber-400 uppercase mt-1">Bom</p>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-center">
+                    <span className="text-2xl font-black text-emerald-500">{sessionStats.easy}</span>
+                    <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 uppercase mt-1">Fácil</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-center gap-3">
+                  <button
+                    onClick={() => handleStartReview(false)}
+                    className="px-5 py-2.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 transition-all cursor-pointer"
+                  >
+                    Revisar Novamente
+                  </button>
+                  <button
+                    onClick={() => setIsStudying(false)}
+                    className="px-6 py-2.5 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 transition-all cursor-pointer"
+                  >
+                    Concluir e Voltar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* CARD DE ESTUDO INTERATIVO 3D */
+              <div className="space-y-6">
+                <div
+                  className="perspective-1000 w-full min-h-[360px] sm:min-h-[400px] cursor-pointer select-none"
+                  onClick={() => setIsFlipped(v => !v)}
+                  title="Clique para virar o cartão (ou pressione Barra de Espaço)"
+                >
+                  <div
+                    className={`relative w-full h-full min-h-[360px] sm:min-h-[400px] transform-style-preserve-3d transition-transform duration-500 rounded-3xl ${
+                      isFlipped ? 'rotate-y-180' : ''
+                    }`}
+                  >
+                    {/* FRENTE (PERGUNTA) */}
+                    <div className="absolute inset-0 backface-hidden p-8 sm:p-10 rounded-3xl bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 shadow-xl flex flex-col justify-between">
+                      <div className="flex items-center justify-between">
+                        <span
+                          className="text-xs font-bold px-3 py-1 rounded-full border"
+                          style={{
+                            backgroundColor: `${subjBadge.color}15`,
+                            color: subjBadge.color,
+                            borderColor: `${subjBadge.color}40`,
+                          }}
+                        >
+                          {subjBadge.name}
+                        </span>
+                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                          <span>❓</span> Pergunta
+                        </span>
+                      </div>
+
+                      <div className="my-auto py-6 text-center">
+                        <p className="text-xl sm:text-2xl font-bold text-slate-800 dark:text-white leading-relaxed">
+                          {currentCard.front}
+                        </p>
+
+                        {currentCard.hint && (
+                          <div className="mt-4">
+                            {showHint ? (
+                              <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 p-2.5 rounded-xl border border-amber-200 dark:border-amber-800 max-w-sm mx-auto animate-fade-in">
+                                💡 <strong>Dica:</strong> {currentCard.hint}
+                              </p>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setShowHint(true); }}
+                                className="text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
+                              >
+                                💡 Ver Dica
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-slate-400 pt-4 border-t border-slate-100 dark:border-slate-700/60">
+                        <span className="flex items-center gap-1">
+                          <kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-[10px] font-mono">Espaço</kbd> para virar
+                        </span>
+                        <span className="text-blue-500 font-bold flex items-center gap-1">
+                          Clique para ver a resposta ➔
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* VERSO (RESPOSTA) */}
+                    <div className="absolute inset-0 backface-hidden rotate-y-180 p-8 sm:p-10 rounded-3xl bg-slate-900 text-white border-2 border-slate-700 shadow-2xl flex flex-col justify-between">
+                      <div className="flex items-center justify-between">
+                        <span
+                          className="text-xs font-bold px-3 py-1 rounded-full border"
+                          style={{
+                            backgroundColor: `${subjBadge.color}25`,
+                            color: '#93C5FD',
+                            borderColor: `${subjBadge.color}60`,
+                          }}
+                        >
+                          {subjBadge.name}
+                        </span>
+                        <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                          <span>💡</span> Resposta
+                        </span>
+                      </div>
+
+                      <div className="my-auto py-6 text-center">
+                        <p className="text-lg sm:text-xl font-medium text-slate-100 leading-relaxed max-w-xl mx-auto">
+                          {currentCard.back}
+                        </p>
+                      </div>
+
+                      <div className="text-center text-xs text-slate-400 pt-4 border-t border-slate-800">
+                        Como você se saiu ao responder? Avalie abaixo:
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* BOTÕES DE AUTOAVALIAÇÃO OU VIRAR */}
+                {!isFlipped ? (
+                  <div className="text-center">
+                    <button
+                      id="btn-flip-card"
+                      onClick={() => setIsFlipped(true)}
+                      className="px-8 py-3.5 rounded-2xl text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xl shadow-blue-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer flex items-center gap-2 mx-auto"
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                      </svg>
+                      Virar Carta (Mostrar Resposta)
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3 animate-slide-up">
+                    <p className="text-center text-xs font-bold uppercase tracking-wider text-slate-400">
+                      Como foi sua retenção?
+                    </p>
+                    <div className="grid grid-cols-3 gap-3">
+                      {/* Errei */}
+                      <button
+                        id="btn-card-failed"
+                        onClick={() => handleRateCard('failed')}
+                        className="p-3.5 sm:p-4 rounded-2xl bg-rose-500/10 hover:bg-rose-500 text-rose-600 hover:text-white border border-rose-500/30 font-bold text-xs sm:text-sm transition-all duration-200 flex flex-col items-center gap-1 group cursor-pointer shadow-sm hover:shadow-lg hover:shadow-rose-500/30"
+                      >
+                        <span className="text-base group-hover:scale-110 transition-transform">❌</span>
+                        <span>Errei</span>
+                        <span className="text-[10px] opacity-75 font-normal">Revisar amanhã (1d)</span>
+                      </button>
+
+                      {/* Bom */}
+                      <button
+                        id="btn-card-good"
+                        onClick={() => handleRateCard('good')}
+                        className="p-3.5 sm:p-4 rounded-2xl bg-amber-500/10 hover:bg-amber-500 text-amber-600 hover:text-white border border-amber-500/30 font-bold text-xs sm:text-sm transition-all duration-200 flex flex-col items-center gap-1 group cursor-pointer shadow-sm hover:shadow-lg hover:shadow-amber-500/30"
+                      >
+                        <span className="text-base group-hover:scale-110 transition-transform">👍</span>
+                        <span>Bom</span>
+                        <span className="text-[10px] opacity-75 font-normal">Intervalo médio (+3d)</span>
+                      </button>
+
+                      {/* Fácil */}
+                      <button
+                        id="btn-card-easy"
+                        onClick={() => handleRateCard('easy')}
+                        className="p-3.5 sm:p-4 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500 text-emerald-600 hover:text-white border border-emerald-500/30 font-bold text-xs sm:text-sm transition-all duration-200 flex flex-col items-center gap-1 group cursor-pointer shadow-sm hover:shadow-lg hover:shadow-emerald-500/30"
+                      >
+                        <span className="text-base group-hover:scale-110 transition-transform">⚡</span>
+                        <span>Fácil</span>
+                        <span className="text-[10px] opacity-75 font-normal">Intervalo longo (+6d)</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // =============================================
+      // RENDERIZAÇÃO: LISTAGEM E GERENCIAMENTO
+      // =============================================
+      return (
+        <div className="max-w-6xl mx-auto space-y-6 animate-fade-in">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2.5">
+                <span className="p-2 rounded-xl bg-purple-500/10 text-purple-500">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+                    <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+                  </svg>
+                </span>
+                Flashcards & Active Recall
+              </h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                Potencialize sua retenção com repetição espaçada e autoavaliação ativa.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {cards.length === 0 ? (
+                <button
+                  onClick={handleLoadSamples}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800 hover:bg-purple-100 transition-all cursor-pointer"
+                >
+                  Carregar Exemplos
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleStartReview(false)}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-all cursor-pointer"
+                  title="Revisar todos os cartões, mesmo os que não estão pendentes"
+                >
+                  Revisar Todos ({cards.length})
+                </button>
+              )}
+
+              {dueCards.length > 0 && (
+                <button
+                  id="btn-start-flashcard-review"
+                  onClick={() => handleStartReview(true)}
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2 cursor-pointer animate-pulse"
+                >
+                  <span>🚀</span> Estudar Agora ({dueCards.length} pendentes)
+                </button>
+              )}
+
+              <button
+                id="btn-new-flashcard"
+                onClick={openCreateModal}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-lg shadow-purple-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Novo Flashcard
+              </button>
+            </div>
+          </div>
+
+          {/* Cards de Métricas Rápidas */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Total */}
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Total de Flashcards</span>
+                <p className="text-3xl font-black text-slate-800 dark:text-white mt-1">{cards.length}</p>
+              </div>
+              <div className="w-12 h-12 rounded-2xl bg-purple-50 dark:bg-purple-950/40 text-purple-500 flex items-center justify-center text-xl">
+                🗂️
+              </div>
+            </div>
+
+            {/* Pendentes Hoje */}
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Para Revisar Hoje</span>
+                <p className="text-3xl font-black text-amber-500 mt-1">{dueCards.length}</p>
+              </div>
+              <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-500 flex items-center justify-center text-xl">
+                ⏳
+              </div>
+            </div>
+
+            {/* Dominados */}
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Dominados (7d+)</span>
+                <p className="text-3xl font-black text-emerald-500 mt-1">{masteredCards.length}</p>
+              </div>
+              <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-500 flex items-center justify-center text-xl">
+                🧠
+              </div>
+            </div>
+          </div>
+
+          {/* Filtros e Busca */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Disciplina:</span>
+              <select
+                value={filterSubject}
+                onChange={e => setFilterSubject(e.target.value)}
+                className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"
+              >
+                <option value="all">Todas ({cards.length})</option>
+                <option value="general">Geral / Sem Disciplina</option>
+                {subjects.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="relative w-full sm:w-64">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Buscar em perguntas e respostas..."
+                className="w-full pl-9 pr-4 py-1.5 rounded-xl text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+              </span>
+            </div>
+          </div>
+
+          {/* Grid de Flashcards */}
+          {filteredCards.length === 0 ? (
+            <div className="py-16 text-center rounded-3xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-purple-50 dark:bg-purple-950/40 text-purple-500 flex items-center justify-center text-3xl">
+                🃏
+              </div>
+              <h3 className="text-base font-bold text-slate-800 dark:text-white mb-1">
+                Nenhum flashcard encontrado
+              </h3>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto mb-6">
+                Crie cartões com perguntas e respostas para memorizar conceitos-chave das suas disciplinas.
+              </p>
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  onClick={handleLoadSamples}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 transition-all cursor-pointer"
+                >
+                  Carregar Exemplos
+                </button>
+                <button
+                  onClick={openCreateModal}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-lg shadow-purple-600/30 transition-all cursor-pointer"
+                >
+                  Criar Meu Primeiro Cartão
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredCards.map(card => {
+                const badge = getSubjectBadge(card.subjectId);
+                const isDue = !card.nextReviewDate || card.nextReviewDate <= todayStr;
+
+                return (
+                  <div
+                    key={card.id}
+                    className="p-5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-all flex flex-col justify-between group"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-3">
+                        <span
+                          className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border truncate max-w-[160px]"
+                          style={{
+                            backgroundColor: `${badge.color}15`,
+                            color: badge.color,
+                            borderColor: `${badge.color}30`,
+                          }}
+                        >
+                          {badge.name}
+                        </span>
+
+                        {isDue ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+                            Revisar Hoje
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-semibold text-slate-400">
+                            Em {card.intervalDays}d
+                          </span>
+                        )}
+                      </div>
+
+                      <h4 className="text-sm font-bold text-slate-800 dark:text-white line-clamp-3 mb-2">
+                        {card.front}
+                      </h4>
+
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-700/60 mt-3">
+                        <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Resposta:</span>
+                        <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-3">
+                          {card.back}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between">
+                      <span className="text-[11px] text-slate-400">
+                        {card.repetition ? `${card.repetition} acertos seguidos` : 'Novo cartão'}
+                      </span>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => openEditModal(card)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-blue-500 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all cursor-pointer"
+                          title="Editar flashcard"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCard(card.id)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all cursor-pointer"
+                          title="Excluir flashcard"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Modal de Criar / Editar Flashcard */}
+          <Modal
+            isOpen={isModalOpen}
+            onClose={() => setIsModalOpen(false)}
+            title={editingCard ? 'Editar Flashcard' : 'Novo Flashcard'}
+          >
+            <form onSubmit={handleSaveCard} className="p-6 space-y-4">
+              {formError && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-600 dark:text-rose-400 font-semibold">
+                  {formError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  Vincular a uma Disciplina
+                </label>
+                <select
+                  value={formSubjectId}
+                  onChange={e => setFormSubjectId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-xs font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"
+                >
+                  <option value="general">Geral / Não vinculada</option>
+                  {subjects.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  Frente (Pergunta / Conceito) <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  required
+                  rows="3"
+                  placeholder="ex: O que é o Teorema de Bayes e qual sua fórmula?"
+                  value={formFront}
+                  onChange={e => setFormFront(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  Verso (Resposta Detalhada / Explicação) <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  required
+                  rows="4"
+                  placeholder="ex: É um teorema de probabilidade condicional que descreve a probabilidade de um evento baseando-se no conhecimento prévio de condições..."
+                  value={formBack}
+                  onChange={e => setFormBack(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  Dica Adicional (Opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="ex: Pense em P(A|B) = [P(B|A) * P(A)] / P(B)"
+                  value={formHint}
+                  onChange={e => setFormHint(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-md shadow-purple-600/30 transition-all cursor-pointer"
+                >
+                  {editingCard ? 'Salvar Alterações' : 'Criar Flashcard'}
+                </button>
+              </div>
+            </form>
+          </Modal>
+        </div>
+      );
+    }
+
+    // =============================================
     // COMPONENTES DE LAYOUT
     // =============================================
 
@@ -4805,6 +6398,26 @@
         )
       },
       {
+        id: 'ira',
+        label: 'Simulador de IRA',
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
+            <path d="M6 6h10"/><path d="M6 10h10"/><path d="m9 16 2 2 4-4"/>
+          </svg>
+        )
+      },
+      {
+        id: 'flashcards',
+        label: 'Flashcards',
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+          </svg>
+        )
+      },
+      {
         id: 'progress',
         label: 'Progresso',
         icon: (
@@ -4849,7 +6462,7 @@
           <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-1">
             {NAV_ITEMS.map(item => {
               const isActive = activeNav === item.id;
-              const isComingSoon = !['subjects', 'study', 'notes', 'schedule', 'timer', 'progress', 'tasks'].includes(item.id);
+              const isComingSoon = !['subjects', 'study', 'notes', 'schedule', 'timer', 'ira', 'flashcards', 'progress', 'tasks'].includes(item.id);
               return (
                 <button
                   key={item.id}
@@ -5009,6 +6622,8 @@
           case 'notes':    return <NotesPage />;
           case 'schedule': return <SchedulePage />;
           case 'timer':    return <PomodoroPage />;
+          case 'ira':      return <IraSimulatorPage />;
+          case 'flashcards': return <FlashcardsPage />;
           case 'progress': return <ProgressPage />;
           case 'tasks':    return <TasksPage onNavigate={setActiveNav} />;
           default:
